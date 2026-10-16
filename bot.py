@@ -2970,19 +2970,8 @@ def start_keyboard(is_admin: bool = False, support_access: bool = False):
     buttons = []
     if WEBAPP_URL.startswith("https://"):
         buttons.append([InlineKeyboardButton(text="🌐 Открыть D-COINS", web_app=WebAppInfo(url=f"{WEBAPP_URL}/miniapp/"))])
-    buttons.extend([
-        [InlineKeyboardButton(text="🎮 Игры", callback_data="games")],
-        [InlineKeyboardButton(text="🏆 Джекпот дня", callback_data="jackpot:view")],
-        [InlineKeyboardButton(text="📦 Кейсы", callback_data="cases")],
-        [InlineKeyboardButton(text="⚡ Бустеры", callback_data="boosters")],
-        [InlineKeyboardButton(text="🎒 Инвентарь", callback_data="inventory")],
-        [InlineKeyboardButton(text="⭐ Купить D-COINS", callback_data="buy_dc_menu")],
-        [InlineKeyboardButton(text="❓ Как играть", callback_data="help")],
-    ])
-    if support_access:
-        buttons.append([InlineKeyboardButton(text="💬 Чат с администратором", callback_data="support_open")])
-    if is_admin:
-        buttons.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin_panel")])
+    if not buttons:
+        buttons.append([InlineKeyboardButton(text="⏳ D-COINS загружается", callback_data="miniapp_unavailable")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -9246,6 +9235,7 @@ async def miniapp_me(request: web.Request) -> web.Response:
             "pandora_remaining": await db.pandora_remaining(user_id),
             "jackpot": jackpot,
             "support_access": await db.has_support_access(user_id),
+            "is_admin": user_id == ADMIN_ID,
         }
     )
 
@@ -9286,6 +9276,68 @@ async def miniapp_set_privacy(request: web.Request) -> web.Response:
     return web.json_response({"hidden": hidden})
 
 
+async def miniapp_play_game(request: web.Request) -> web.Response:
+    """Settles the instant Mini App games against the same real balance as the bot."""
+    user = await miniapp_authorize(request)
+    try:
+        payload = await request.json()
+        game = str(payload["game"])
+        bet = int(payload["bet"])
+        option = str(payload.get("option", ""))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid game request")
+    if game not in {"slots", "roulette", "dice", "coinflip"} or not CASINO_MIN_BET <= bet <= MAX_BET:
+        raise web.HTTPBadRequest(text="Invalid game or bet")
+    valid_options = {
+        "slots": {"spin"},
+        "roulette": {"red", "black", "green"},
+        "dice": {"1", "2", "3", "4", "5", "6"},
+        "coinflip": {"heads", "tails"},
+    }
+    if option not in valid_options[game]:
+        raise web.HTTPBadRequest(text="Invalid game option")
+    if user["id"] in casino_bet_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {CASINO_BET_COOLDOWN} seconds before the next bet")
+    casino_bet_cooldowns[user["id"]] = True
+    balance, _ = await db.get_coins(user["id"])
+    booster, error = await selected_booster_for_bet(user["id"], bet, balance)
+    if error:
+        casino_bet_cooldowns.pop(user["id"], None)
+        raise web.HTTPBadRequest(text=error)
+    result, won, multiplier = "", False, 2
+    if game == "slots":
+        symbols = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+        if len(set(symbols)) != 1 and booster_can_repeat(booster, "slots"):
+            symbols = [random.choice(SLOT_SYMBOLS) for _ in range(3)]
+        won, result = len(set(symbols)) == 1 and random.random() < GAME_WIN_FACTOR, " ".join(symbols)
+    elif game == "roulette":
+        outcome = random.choice(ROULETTE_WHEEL)
+        if outcome != option and booster_can_repeat(booster, "roulette"):
+            outcome = random.choice(ROULETTE_WHEEL)
+        won, multiplier = outcome == option and random.random() < GAME_WIN_FACTOR, (3 if option == "green" else 2)
+        result = {"red": "🔴 Красное", "black": "⚫ Чёрное", "green": "🟢 Зелёное"}[outcome]
+    elif game == "dice":
+        roll = random.randint(1, 6)
+        if str(roll) != option and booster_can_repeat(booster, "dice"):
+            roll = random.randint(1, 6)
+        won, result = str(roll) == option and random.random() < GAME_WIN_FACTOR, f"🎲 Выпало: {roll}"
+    else:
+        outcome = random.choice(("heads", "tails"))
+        if outcome != option and booster_can_repeat(booster, "coinflip"):
+            outcome = random.choice(("heads", "tails"))
+        won, result = outcome == option and random.random() < GAME_WIN_FACTOR, ("🦅 Орёл" if outcome == "heads" else "🔵 Решка")
+    prize = 0
+    refund = 0
+    if won:
+        prize = booster_win_amount(golden_payout(bet * multiplier), booster, allow_double=not (game == "roulette" and option == "green"))
+        await db.add_coins(user["id"], prize)
+    else:
+        refund = await booster_loss_refund(user["id"], bet, booster)
+        await db.record_jackpot_loss(user["id"], user["name"], bet, f"mini:{game}:{time.time_ns()}")
+    shown, _, _ = await db.get_balance_details(user["id"])
+    return web.json_response({"won": won, "result": result, "prize": prize, "refund": refund, "balance": shown, "booster": BOOSTERS[booster][0] if booster else None})
+
+
 async def miniapp_health(_request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "miniapp": WEBAPP_ENABLED})
 
@@ -9303,6 +9355,7 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/api/top", miniapp_top)
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
+    app.router.add_post("/api/game/play", miniapp_play_game)
     app.router.add_get("/health", miniapp_health)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
