@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0f16" />
+    <title>D-COINS</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <button class="brand" type="button" data-view="home" aria-label="Главная D-COINS">
+          <span class="brand-mark"><span>D</span></span>
+          <span class="brand-name">D-COINS</span>
+        </button>
+        <button class="profile-button" type="button" data-view="profile" aria-label="Профиль">
+          <span class="profile-dot"></span>
+          <span>Профиль</span>
+        </button>
+      </header>
+
+      <section id="screen" class="screen" aria-live="polite"></section>
+
+      <nav class="bottom-nav" aria-label="Навигация">
+        <button class="nav-item active" type="button" data-view="home"><span>⌂</span>Главная</button>
+        <button class="nav-item" type="button" data-view="games"><span>◈</span>Игры</button>
+        <button class="nav-item" type="button" data-view="cases"><span>▣</span>Кейсы</button>
+        <button class="nav-item" type="button" data-view="boosters"><span>⚡</span>Бустеры</button>
+        <button class="nav-item" type="button" data-view="more"><span>•••</span>Ещё</button>
+      </nav>
+    </main>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
