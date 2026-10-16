@@ -9286,13 +9286,15 @@ async def miniapp_play_game(request: web.Request) -> web.Response:
         option = str(payload.get("option", ""))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise web.HTTPBadRequest(text="Invalid game request")
-    if game not in {"slots", "roulette", "dice", "coinflip"} or not CASINO_MIN_BET <= bet <= MAX_BET:
+    if game not in {"slots", "roulette", "dice", "coinflip", "scratch", "lottery"} or not CASINO_MIN_BET <= bet <= MAX_BET:
         raise web.HTTPBadRequest(text="Invalid game or bet")
     valid_options = {
         "slots": {"spin"},
         "roulette": {"red", "black", "green"},
         "dice": {"1", "2", "3", "4", "5", "6"},
         "coinflip": {"heads", "tails"},
+        "scratch": {"reveal"},
+        "lottery": {str(index) for index in range(25)},
     }
     if option not in valid_options[game]:
         raise web.HTTPBadRequest(text="Invalid game option")
@@ -9321,6 +9323,19 @@ async def miniapp_play_game(request: web.Request) -> web.Response:
         if str(roll) != option and booster_can_repeat(booster, "dice"):
             roll = random.randint(1, 6)
         won, result = str(roll) == option and random.random() < GAME_WIN_FACTOR, f"🎲 Выпало: {roll}"
+    elif game == "scratch":
+        won = random.random() < SCRATCH_WIN_CHANCE * GAME_WIN_FACTOR
+        if not won and booster_can_repeat(booster, "scratch"):
+            won = random.random() < SCRATCH_WIN_CHANCE
+        board = create_scratch_board(won)
+        multiplier = SCRATCH_MULTIPLIER
+        result = " ".join(board)
+    elif game == "lottery":
+        board = list(LOTTERY_MULTIPLIERS)
+        random.shuffle(board)
+        multiplier = board[int(option)]
+        won = multiplier > 0
+        result = f"Билет {int(option) + 1}: ×{multiplier:g}"
     else:
         outcome = random.choice(("heads", "tails"))
         if outcome != option and booster_can_repeat(booster, "coinflip"):
