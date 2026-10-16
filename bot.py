@@ -9338,6 +9338,165 @@ async def miniapp_play_game(request: web.Request) -> web.Response:
     return web.json_response({"won": won, "result": result, "prize": prize, "refund": refund, "balance": shown, "booster": BOOSTERS[booster][0] if booster else None})
 
 
+async def miniapp_open_case(request: web.Request) -> web.Response:
+    """Open a case through the Mini App using the same balance and rewards as inline."""
+    user = await miniapp_authorize(request)
+    try:
+        case_id = str((await request.json())["case_id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid case request")
+    if case_id not in CASES or (not SCHOOL_EVENT_ENABLED and case_id in {"school", "student", "excellent"}):
+        raise web.HTTPNotFound(text="Case is unavailable")
+    if user["id"] in case_open_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {CASE_OPEN_COOLDOWN} seconds before the next case")
+
+    case = CASES[case_id]
+    case_open_cooldowns[user["id"]] = True
+    payment = await db.open_case(user["id"], case_id, case["price"], case.get("key_only", False))
+    if payment == "key_required":
+        case_open_cooldowns.pop(user["id"], None)
+        raise web.HTTPBadRequest(text="This case requires a key")
+    if payment == "insufficient":
+        case_open_cooldowns.pop(user["id"], None)
+        raise web.HTTPBadRequest(text="Insufficient D-COINS")
+
+    selected = random.choices(
+        case["rewards"], weights=[case_reward_parts(item)[2] for item in case["rewards"]], k=1
+    )[0]
+    kind, reward, _ = case_reward_parts(selected)
+    prize = {"kind": kind, "amount": int(reward)}
+    bot: Bot = request.app["bot"]
+    if kind == "coins":
+        await db.add_coins(user["id"], int(reward))
+    elif kind == "booster":
+        booster_id = CASE_BOOSTERS.get(int(reward))
+        if not booster_id:
+            raise web.HTTPInternalServerError(text="Invalid case booster")
+        await db.grant_booster(user["id"], booster_id)
+        prize["booster"] = BOOSTERS[booster_id][0]
+    elif kind == "gift":
+        gift_key = {15: 5, 25: 10, 50: 15, 100: 20}.get(int(reward))
+        if not gift_key:
+            raise web.HTTPInternalServerError(text="Invalid case gift")
+        gift_id = random.choice(GIFT_IDS[gift_key])
+        try:
+            await send_bot_gift(bot, user["id"], gift_id)
+            prize["delivery"] = "queued"
+        except Exception as error:
+            await db.add_pending_gift(user["id"], user["name"], gift_id, f"Mini App case {case['title']}: {error}")
+            prize["delivery"] = "pending"
+    else:
+        raise web.HTTPInternalServerError(text="Invalid case reward")
+
+    balance = await db.get_display_balance(user["id"])
+    keys = await db.get_case_keys(user["id"], case_id)
+    return web.json_response({"case": case_id, "payment": payment, "prize": prize, "balance": balance, "keys": keys})
+
+
+async def miniapp_open_pandora(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    claimed, remaining = await db.claim_pandora(user["id"])
+    if not claimed:
+        raise web.HTTPTooManyRequests(text=f"Pandora is available in {remaining} seconds")
+    kind, value, _ = random.choices(PANDORA_REWARDS, weights=[reward[2] for reward in PANDORA_REWARDS], k=1)[0]
+    prize = {"kind": kind, "amount": value}
+    bot: Bot = request.app["bot"]
+    if kind == "coins":
+        await db.add_coins(user["id"], int(value))
+    elif kind == "key":
+        await db.add_case_keys(user["id"], str(value), 1)
+        prize["case"] = CASES[str(value)]["title"]
+    elif kind == "chance":
+        chance, messages, last_bonus = await db.get_user(user["id"], MAIN_CHAT_ID)
+        chance = min(MAX_CHANCE, round(chance + float(value), 3))
+        await db.update_user(user["id"], MAIN_CHAT_ID, user["name"], chance, messages, last_bonus)
+        prize["chance"] = chance
+    elif kind == "gift":
+        gift_id = random.choice(GIFT_IDS[{15: 5, 25: 10, 50: 15, 100: 20}[int(value)]])
+        try:
+            await send_bot_gift(bot, user["id"], gift_id)
+            prize["delivery"] = "queued"
+        except Exception as error:
+            await db.add_pending_gift(user["id"], user["name"], gift_id, f"Mini App Pandora: {error}")
+            prize["delivery"] = "pending"
+    elif kind == "premium":
+        prize["order_id"] = await db.add_premium_order(user["id"], user["name"], 0)
+    else:
+        raise web.HTTPInternalServerError(text="Invalid Pandora reward")
+    return web.json_response({"prize": prize, "balance": await db.get_display_balance(user["id"]), "remaining": await db.pandora_remaining(user["id"])})
+
+
+async def miniapp_redeem_promo(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    try:
+        code = str((await request.json())["code"]).strip().upper()
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid promo request")
+    if not 3 <= len(code) <= 32:
+        raise web.HTTPBadRequest(text="Invalid promo code")
+    status, reward, reward_type, case_id, case_count, uses, max_uses = await db.redeem_promo(code, user["id"])
+    if status != "success":
+        raise web.HTTPBadRequest(text=status.replace("_", " "))
+    return web.json_response({"code": code, "reward": reward, "reward_type": reward_type, "case_id": case_id, "case_count": case_count, "uses": uses, "max_uses": max_uses, "balance": await db.get_display_balance(user["id"])})
+
+
+async def miniapp_admin(request: web.Request) -> dict:
+    user = await miniapp_authorize(request)
+    if user["id"] != ADMIN_ID:
+        raise web.HTTPForbidden(text="Administrator access required")
+    return user
+
+
+async def miniapp_admin_overview(request: web.Request) -> web.Response:
+    await miniapp_admin(request)
+    async with connect(db.path) as connection:
+        async with connection.execute("SELECT COUNT(*) FROM bot_users") as cursor:
+            players = int((await cursor.fetchone())[0])
+        async with connection.execute("SELECT COUNT(*) FROM pending_gifts") as cursor:
+            pending_gifts = int((await cursor.fetchone())[0])
+        async with connection.execute("SELECT COUNT(*) FROM premium_orders") as cursor:
+            premium_orders = int((await cursor.fetchone())[0])
+    promos = await db.get_promos()
+    return web.json_response({"players": players, "pending_gifts": pending_gifts, "premium_orders": premium_orders, "promos": [{"code": code, "reward": reward, "type": kind, "case_id": case_id, "case_count": count, "max_uses": maximum, "uses": uses} for code, reward, kind, case_id, count, maximum, uses in promos], "star_packages": STAR_DC_PACKAGES})
+
+
+async def miniapp_admin_action(request: web.Request) -> web.Response:
+    await miniapp_admin(request)
+    try:
+        payload = await request.json()
+        action = str(payload["action"])
+        user_id = int(payload.get("user_id", 0))
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid admin request")
+    if action in {"add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban"} and user_id <= 0:
+        raise web.HTTPBadRequest(text="A valid user ID is required")
+    if action in {"add_coins", "remove_coins"}:
+        try:
+            amount = int(payload["amount"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="A positive amount is required")
+        if amount <= 0:
+            raise web.HTTPBadRequest(text="A positive amount is required")
+        if action == "add_coins":
+            balance = await db.add_coins(user_id, amount)
+        else:
+            if not await db.remove_coins(user_id, amount):
+                raise web.HTTPBadRequest(text="Insufficient D-COINS")
+            balance, _ = await db.get_coins(user_id)
+        return web.json_response({"ok": True, "balance": balance})
+    if action == "grant_support":
+        await db.grant_support_access(user_id)
+    elif action == "revoke_support":
+        await db.revoke_support_access(user_id)
+    elif action == "ban":
+        await db.ban_user(user_id, str(payload.get("reason", ""))[:300])
+    elif action == "unban":
+        await db.unban_user(user_id)
+    else:
+        raise web.HTTPBadRequest(text="Unknown admin action")
+    return web.json_response({"ok": True})
+
+
 async def miniapp_health(_request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "miniapp": WEBAPP_ENABLED})
 
@@ -9356,6 +9515,11 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
     app.router.add_post("/api/game/play", miniapp_play_game)
+    app.router.add_post("/api/case/open", miniapp_open_case)
+    app.router.add_post("/api/pandora/open", miniapp_open_pandora)
+    app.router.add_post("/api/promo/redeem", miniapp_redeem_promo)
+    app.router.add_get("/api/admin/overview", miniapp_admin_overview)
+    app.router.add_post("/api/admin/action", miniapp_admin_action)
     app.router.add_get("/health", miniapp_health)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
