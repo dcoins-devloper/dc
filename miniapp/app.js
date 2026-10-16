@@ -76,7 +76,12 @@ function render() {
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   if (view === "top" && !state.top.length) loadTop();
 }
-function renderGame(game) { const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"}; document.querySelector("#screen").innerHTML = page(names[game], "Введи любую сумму ставки. Минимум — 5 DC.", `<div class="modal"><h2>${names[game]}</h2><p>${state.booster ? `Активный бустер: ${state.booster}.` : "Бустер не выбран."}</p><div class="section"><input class="input" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions">${btn("Начать игру", "game-start", "primary")}${btn("К играм", "games")}</div></div>`); }
+function renderGame(game) {
+  const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
+  const options={slots:[["spin","Крутить барабаны"]],roulette:[["red","🔴 Красное"],["black","⚫ Чёрное"],["green","🟢 Зелёное · ×3"]],dice:[["1","1"],["2","2"],["3","3"],["4","4"],["5","5"],["6","6"]],coinflip:[["heads","🦅 Орёл"],["tails","🔵 Решка"]]}[game];
+  if (!options) { document.querySelector("#screen").innerHTML = page(names[game], "Этот режим переносится следующим — остальные игры уже доступны в боте.", `${btn("К играм", "games")}`); return; }
+  document.querySelector("#screen").innerHTML = page(names[game], "Минимальная ставка — 5 DC.", `<div class="modal"><h2>${names[game]}</h2><p>${state.booster ? `Активный бустер: ${state.booster}.` : "Бустер не выбран."}</p><div class="section"><select id="game-option" class="input">${options.map(([value,label])=>`<option value="${value}">${label}</option>`).join("")}</select></div><div class="section"><input id="game-bet" class="input" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="play-game" data-game="${game}">Начать игру</button>${btn("К играм", "games")}</div></div>`);
+}
 function renderCase(id) { const data={blood:["BLOOD","5 000 DC"],pantera:["PANTERA","10 000 DC"],spider_man:["SPIDER MAN","7 500 DC"]}[id]; document.querySelector("#screen").innerHTML = page(data[0], "Награды определяются шансами, настроенными в боте.", `<div class="modal"><h2>${data[0]}</h2><p>Стоимость: ${data[1]}. Среди наград — D-COINS, подарки и бустеры.</p><div class="modal-actions">${btn("Открыть кейс", "case-open", "primary")}${btn("Все кейсы", "cases")}</div></div>`); }
 function renderPandora() { document.querySelector("#screen").innerHTML = page("Ящик Пандоры", "Бесплатный ящик можно открыть раз в 5 дней.", `<div class="modal"><h2>Ящик Пандоры</h2><p>Внутри могут быть D-COINS, ключи кейсов, подарки и бустеры.</p><div class="modal-actions">${btn("Открыть бесплатно", "pandora-open", "primary")}${btn("К кейсам", "cases")}</div></div>`); }
 
@@ -87,10 +92,11 @@ document.addEventListener("click", (event) => {
     setPrivacy(!state.hiddenBalance);
     return;
   }
-  if (["game-start", "case-open", "pandora-open", "promo-activate", "support-send"].includes(target.dataset.view)) {
+  if (["case-open", "pandora-open", "promo-activate", "support-send"].includes(target.dataset.view)) {
     alert("Действие будет выполняться через защищённый API бота после подключения Mini App.");
     return;
   }
+  if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   alert("Действие будет выполняться через защищённый API бота после подключения Mini App.");
@@ -124,6 +130,16 @@ async function setPrivacy(hidden) {
     state.view = "profile";
     render();
   } catch { alert("Не удалось изменить настройки баланса."); }
+}
+async function playGame(game) {
+  const bet = Number(document.querySelector("#game-bet")?.value);
+  const option = document.querySelector("#game-option")?.value;
+  if (!Number.isInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
+  try {
+    const data = await api("/api/game/play", { method: "POST", body: JSON.stringify({ game, bet, option }) });
+    state.balance = data.balance;
+    document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
+  } catch (error) { alert(error.message || "Не удалось завершить игру."); }
 }
 async function loadTop() {
   try {
