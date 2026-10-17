@@ -9253,6 +9253,30 @@ async def miniapp_top(request: web.Request) -> web.Response:
     )
 
 
+async def miniapp_create_invoice(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    if await db.is_banned(user["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        data = await request.json()
+        dc_amount = int(data["amount"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid DC package")
+    stars = STAR_DC_PACKAGES.get(dc_amount)
+    if stars is None:
+        raise web.HTTPBadRequest(text="Unknown DC package")
+    payload = await create_invoice_order(db.path, user["id"], dc_amount, stars)
+    bot: Bot = request.app["bot"]
+    link = await bot.create_invoice_link(
+        title=f"{dc_amount:,} D-COINS".replace(",", " "),
+        description=f"{dc_amount:,} DC за {stars} Stars".replace(",", " "),
+        payload=payload,
+        currency="XTR",
+        prices=[LabeledPrice(label="D-COINS", amount=stars)],
+    )
+    return web.json_response({"invoice_link": link, "amount": dc_amount, "stars": stars})
+
+
 async def miniapp_bonus(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     if await db.is_banned(user["id"]):
@@ -9677,6 +9701,7 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/api/jackpot", miniapp_jackpot)
     app.router.add_post("/api/transfer", miniapp_transfer)
     app.router.add_post("/api/bonus", miniapp_bonus)
+    app.router.add_post("/api/purchase/invoice", miniapp_create_invoice)
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
     app.router.add_post("/api/game/play", miniapp_play_game)
