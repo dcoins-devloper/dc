@@ -9690,34 +9690,38 @@ async def miniapp_support_close(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+miniapp_bonus_lock = asyncio.Lock()
+
+
 async def miniapp_bonus(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     if await db.is_banned(user["id"]):
         raise web.HTTPForbidden(text="Account is blocked")
-    user_id = user["id"]
-    chance, msg_count, last_bonus = await db.get_user(user_id, MAIN_CHAT_ID)
-    balance, last_coin_bonus = await db.get_coins(user_id)
-    now = time.time()
-    vip = await db.is_vip(user_id)
-    chance_awarded = 0.0
-    coins_awarded = 0
-    if now - last_bonus >= BONUS_COOLDOWN:
-        chance_awarded = round(random.uniform(0.05, 0.2), 3)
-        chance = min(round(chance + chance_awarded, 3), MAX_CHANCE)
-        await db.update_user(user_id, MAIN_CHAT_ID, user["name"], chance, msg_count, now)
-    if now - last_coin_bonus >= COINS_BONUS_CD:
-        coins_awarded = COINS_VIP_BONUS if vip else COINS_BONUS
-        await db.add_coins(user_id, coins_awarded)
-        await db.set_coin_bonus_time(user_id)
-        await school_event.record(user_id, user["name"], f"miniapp-bonus:{user_id}:{int(now // COINS_BONUS_CD)}", {"bonus": 1})
-    return web.json_response({
-        "chance_awarded": chance_awarded,
-        "chance": chance,
-        "chance_remaining": max(0, int(BONUS_COOLDOWN - (now - last_bonus))) if not chance_awarded else 0,
-        "coins_awarded": coins_awarded,
-        "coin_remaining": max(0, int(COINS_BONUS_CD - (now - last_coin_bonus))) if not coins_awarded else 0,
-        "balance": await db.get_display_balance(user_id),
-    })
+    async with miniapp_bonus_lock:
+        user_id = user["id"]
+        chance, msg_count, last_bonus = await db.get_user(user_id, MAIN_CHAT_ID)
+        balance, last_coin_bonus = await db.get_coins(user_id)
+        now = time.time()
+        vip = await db.is_vip(user_id)
+        chance_awarded = 0.0
+        coins_awarded = 0
+        if now - last_bonus >= BONUS_COOLDOWN:
+            chance_awarded = round(random.uniform(0.05, 0.2), 3)
+            chance = min(round(chance + chance_awarded, 3), MAX_CHANCE)
+            await db.update_user(user_id, MAIN_CHAT_ID, user["name"], chance, msg_count, now)
+        if now - last_coin_bonus >= COINS_BONUS_CD:
+            coins_awarded = COINS_VIP_BONUS if vip else COINS_BONUS
+            await db.add_coins(user_id, coins_awarded)
+            await db.set_coin_bonus_time(user_id)
+            await school_event.record(user_id, user["name"], f"miniapp-bonus:{user_id}:{int(now // COINS_BONUS_CD)}", {"bonus": 1})
+        return web.json_response({
+            "chance_awarded": chance_awarded,
+            "chance": chance,
+            "chance_remaining": max(0, int(BONUS_COOLDOWN - (now - last_bonus))) if not chance_awarded else 0,
+            "coins_awarded": coins_awarded,
+            "coin_remaining": max(0, int(COINS_BONUS_CD - (now - last_coin_bonus))) if not coins_awarded else 0,
+            "balance": await db.get_display_balance(user_id),
+        })
 
 
 async def miniapp_transfer(request: web.Request) -> web.Response:
