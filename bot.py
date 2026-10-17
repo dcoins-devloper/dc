@@ -9475,6 +9475,39 @@ async def miniapp_create_invoice(request: web.Request) -> web.Response:
     return web.json_response({"invoice_link": link, "amount": dc_amount, "stars": stars})
 
 
+async def miniapp_support_send(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    if await db.is_banned(user["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    if not await db.has_support_access(user["id"]):
+        raise web.HTTPForbidden(text="Support access has not been granted")
+    try:
+        message_text = str((await request.json())["message"]).strip()
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a message")
+    if not message_text or len(message_text) > 2000:
+        raise web.HTTPBadRequest(text="Message must be between 1 and 2000 characters")
+    await db.set_support_session(user["id"], True)
+    bot: Bot = request.app["bot"]
+    sent = await bot.send_message(
+        ADMIN_ID,
+        f"💬 Сообщение из Mini App\n\n👤 {user['name']}\n🆔 {user['id']}\n\n{message_text}",
+    )
+    await db.link_support_message(sent.message_id, user["id"])
+    return web.json_response({"ok": True, "message": "Message sent to support"})
+
+
+async def miniapp_support_close(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    await db.set_support_session(user["id"], False)
+    bot: Bot = request.app["bot"]
+    try:
+        await bot.send_message(ADMIN_ID, f"🔒 Пользователь {user['name']} ({user['id']}) закрыл диалог из Mini App.")
+    except Exception:
+        logger.info("Could not notify support admin about closed Mini App session")
+    return web.json_response({"ok": True})
+
+
 async def miniapp_bonus(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     if await db.is_banned(user["id"]):
@@ -9899,6 +9932,8 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/api/jackpot", miniapp_jackpot)
     app.router.add_post("/api/transfer", miniapp_transfer)
     app.router.add_post("/api/bonus", miniapp_bonus)
+    app.router.add_post("/api/support/send", miniapp_support_send)
+    app.router.add_post("/api/support/close", miniapp_support_close)
     app.router.add_post("/api/purchase/invoice", miniapp_create_invoice)
     app.router.add_post("/api/mines/start", miniapp_mines_start)
     app.router.add_post("/api/mines/action", miniapp_mines_action)
