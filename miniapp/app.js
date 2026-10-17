@@ -61,7 +61,7 @@ const views = {
   "admin-users": () => page("Пользователи", "Действия доступны только владельцу бота.", `<div class="modal"><h2>Управление аккаунтом</h2><div class="section"><input class="input" id="admin-user-id" type="number" min="1" placeholder="Telegram ID пользователя" /></div><div class="section"><input class="input" id="admin-amount" type="number" min="1" placeholder="Сумма DC (для изменения баланса)" /></div><div class="section list"><button class="button primary" data-action="admin-do" data-admin-action="add_coins">Начислить DC</button><button class="button secondary" data-action="admin-do" data-admin-action="remove_coins">Снять DC</button><button class="button secondary" data-action="admin-do" data-admin-action="grant_support">Выдать доступ к поддержке</button><button class="button secondary" data-action="admin-do" data-admin-action="revoke_support">Забрать доступ к поддержке</button><button class="button danger" data-action="admin-do" data-admin-action="ban">Заблокировать</button><button class="button secondary" data-action="admin-do" data-admin-action="unban">Разблокировать</button></div></div>`),
   "admin-economy": () => page("Экономика", "Управление ценами и шансами.", `<div class="notice"><b>◈</b><span>Изменения будут защищены проверкой администратора.</span></div>`),
   "admin-promos": () => page("Промокоды и раздачи", "Сводка активных промокодов из базы бота.", `<div class="stat-row"><div class="stat"><b>${state.adminOverview?.players ?? "—"}</b><small>Игроков</small></div><div class="stat"><b>${state.adminOverview?.pending_gifts ?? "—"}</b><small>Подарков в очереди</small></div><div class="stat"><b>${state.adminOverview?.premium_orders ?? "—"}</b><small>Premium-заявок</small></div></div><div class="section list">${(state.adminOverview?.promos || []).map(p => `<div class="list-row">${icon("⌁")}<span class="row-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(String(p.reward))} · ${escapeHtml(p.type)} · ${p.uses}/${p.max_uses}</span></span></div>`).join("") || '<div class="notice"><b>⌁</b><span>Нет данных. Открой раздел, будучи администратором, и обнови страницу.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить сводку</button></div>`),
-  "admin-settings": () => page("Настройки", "Сервисные действия бота.", `<div class="notice"><b>⚙</b><span>Здесь будут доступны только безопасные действия владельца.</span></div>`),
+  "admin-settings": () => page("Заявки и подарки", "Обработка очереди подарков и Premium-заявок.", `<div class="section-title"><h2>Подарки в очереди</h2></div><div class="list">${(state.adminOverview?.pending_gift_items || []).map(item => `<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${escapeHtml(item.gift_id)} · ${escapeHtml(item.reason || "")}</span></span><button class="button primary" data-action="admin-do" data-admin-action="deliver_pending_gift" data-item-id="${item.id}">Выдать</button><button class="button secondary" data-action="admin-do" data-admin-action="delete_pending_gift" data-item-id="${item.id}">Удалить</button></div>`).join("") || '<div class="notice"><b>✓</b><span>Нет подарков в очереди.</span></div>'}</div><div class="section-title"><h2>Premium-заявки</h2></div><div class="list">${(state.adminOverview?.premium_order_items || []).map(item => `<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${format(item.cost)} DC</span></span><button class="button primary" data-action="admin-do" data-admin-action="premium_done" data-item-id="${item.id}">Выдан</button><button class="button secondary" data-action="admin-do" data-admin-action="premium_refund" data-item-id="${item.id}">Возврат</button></div>`).join("") || '<div class="notice"><b>✓</b><span>Нет Premium-заявок.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить заявки</button></div>`),
 };
 
 function page(title, lead, content) { return `<div class="page-head"><div class="eyebrow">D-COINS</div><h1>${title}</h1><p class="lead">${lead}</p></div>${content}`; }
@@ -82,7 +82,7 @@ function render() {
   document.querySelector("#screen").innerHTML = views[view] ? views[view]() : views.home();
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   if (view === "top" && !state.top.length) loadTop();
-  if (view === "admin-promos" && state.isAdmin && !state.adminOverview) loadAdminOverview();
+  if (["admin-promos", "admin-settings"].includes(view) && state.isAdmin && !state.adminOverview) loadAdminOverview();
   if (view === "jackpot") syncProfile().then(() => { if (state.view === "jackpot") render(); }).catch(() => {});
 }
 function renderGame(game) {
@@ -106,7 +106,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { alert("Покупка Stars пока не подключена к Mini App. Используй раздел покупки в боте; баланс здесь не меняется."); return; }
   if (target.dataset.action === "admin-refresh") { loadAdminOverview(); return; }
-  if (target.dataset.action === "admin-do") { runAdminAction(target.dataset.adminAction); return; }
+  if (target.dataset.action === "admin-do") { runAdminAction(target.dataset.adminAction, target.dataset.itemId); return; }
   if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
 });
 
@@ -198,14 +198,15 @@ async function playGame(game) {
 async function loadAdminOverview() {
   try {
     state.adminOverview = await api("/api/admin/overview");
-    if (state.view === "admin-promos") render();
+    if (["admin-promos", "admin-settings"].includes(state.view)) render();
   } catch (error) { alert(error.message || "Не удалось загрузить админ-сводку."); }
 }
-async function runAdminAction(action) {
+async function runAdminAction(action, itemId) {
   if (!state.isAdmin) { alert("Нет доступа."); return; }
   const userId = Number(document.querySelector("#admin-user-id")?.value);
   const amount = Number(document.querySelector("#admin-amount")?.value);
   const payload = { action };
+  if (itemId !== undefined) payload.item_id = Number(itemId);
   if (["add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban"].includes(action)) {
     if (!Number.isInteger(userId) || userId <= 0) { alert("Укажи корректный Telegram ID."); return; }
     payload.user_id = userId;
