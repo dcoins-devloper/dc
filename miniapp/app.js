@@ -58,9 +58,9 @@ const views = {
   help: () => page("Как играть", "Короткие правила без лишнего.", `<div class="list">${["Игры","Кейсы","Бустеры","Джекпот дня","Промокоды"].map((x,i)=>`<div class="list-row">${icon(i+1)}<span class="row-main"><strong>${x}</strong><span>${helpText(x)}</span></span></div>`).join("")}</div>`),
   "jackpot-top": () => page("Топ билетов", "Участники сегодняшнего джекпота.", `<div class="notice"><b>⌾</b><span>Данные появятся после подключения к базе бота.</span></div>`),
   "jackpot-winners": () => page("Победители", "Последние выигрыши джекпота.", `<div class="notice"><b>★</b><span>История появится после подключения к базе бота.</span></div>`),
-  "admin-users": () => page("Пользователи", "Раздел администраторских действий.", `<div class="notice"><b>♙</b><span>Список пользователей будет загружен из базы Mini App.</span></div>`),
+  "admin-users": () => page("Пользователи", "Действия доступны только владельцу бота.", `<div class="modal"><h2>Управление аккаунтом</h2><div class="section"><input class="input" id="admin-user-id" type="number" min="1" placeholder="Telegram ID пользователя" /></div><div class="section"><input class="input" id="admin-amount" type="number" min="1" placeholder="Сумма DC (для изменения баланса)" /></div><div class="section list"><button class="button primary" data-action="admin-do" data-admin-action="add_coins">Начислить DC</button><button class="button secondary" data-action="admin-do" data-admin-action="remove_coins">Снять DC</button><button class="button secondary" data-action="admin-do" data-admin-action="grant_support">Выдать доступ к поддержке</button><button class="button secondary" data-action="admin-do" data-admin-action="revoke_support">Забрать доступ к поддержке</button><button class="button danger" data-action="admin-do" data-admin-action="ban">Заблокировать</button><button class="button secondary" data-action="admin-do" data-admin-action="unban">Разблокировать</button></div></div>`),
   "admin-economy": () => page("Экономика", "Управление ценами и шансами.", `<div class="notice"><b>◈</b><span>Изменения будут защищены проверкой администратора.</span></div>`),
-  "admin-promos": () => page("Промокоды и раздачи", "Управление наградами для игроков.", `<div class="notice"><b>⌁</b><span>Создание промокодов и раздач переносится из админ-панели бота.</span></div>`),
+  "admin-promos": () => page("Промокоды и раздачи", "Сводка активных промокодов из базы бота.", `<div class="stat-row"><div class="stat"><b>${state.adminOverview?.players ?? "—"}</b><small>Игроков</small></div><div class="stat"><b>${state.adminOverview?.pending_gifts ?? "—"}</b><small>Подарков в очереди</small></div><div class="stat"><b>${state.adminOverview?.premium_orders ?? "—"}</b><small>Premium-заявок</small></div></div><div class="section list">${(state.adminOverview?.promos || []).map(p => `<div class="list-row">${icon("⌁")}<span class="row-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(String(p.reward))} · ${escapeHtml(p.type)} · ${p.uses}/${p.max_uses}</span></span></div>`).join("") || '<div class="notice"><b>⌁</b><span>Нет данных. Открой раздел, будучи администратором, и обнови страницу.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить сводку</button></div>`),
   "admin-settings": () => page("Настройки", "Сервисные действия бота.", `<div class="notice"><b>⚙</b><span>Здесь будут доступны только безопасные действия владельца.</span></div>`),
 };
 
@@ -82,6 +82,7 @@ function render() {
   document.querySelector("#screen").innerHTML = views[view] ? views[view]() : views.home();
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   if (view === "top" && !state.top.length) loadTop();
+  if (view === "admin-promos" && state.isAdmin && !state.adminOverview) loadAdminOverview();
   if (view === "jackpot") syncProfile().then(() => { if (state.view === "jackpot") render(); }).catch(() => {});
 }
 function renderGame(game) {
@@ -104,6 +105,8 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { alert("Покупка Stars пока не подключена к Mini App. Используй раздел покупки в боте; баланс здесь не меняется."); return; }
+  if (target.dataset.action === "admin-refresh") { loadAdminOverview(); return; }
+  if (target.dataset.action === "admin-do") { runAdminAction(target.dataset.adminAction); return; }
   if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
 });
 
@@ -192,6 +195,32 @@ async function playGame(game) {
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
   } catch (error) { alert(error.message || "Не удалось завершить игру."); }
 }
+async function loadAdminOverview() {
+  try {
+    state.adminOverview = await api("/api/admin/overview");
+    if (state.view === "admin-promos") render();
+  } catch (error) { alert(error.message || "Не удалось загрузить админ-сводку."); }
+}
+async function runAdminAction(action) {
+  if (!state.isAdmin) { alert("Нет доступа."); return; }
+  const userId = Number(document.querySelector("#admin-user-id")?.value);
+  const amount = Number(document.querySelector("#admin-amount")?.value);
+  const payload = { action };
+  if (["add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban"].includes(action)) {
+    if (!Number.isInteger(userId) || userId <= 0) { alert("Укажи корректный Telegram ID."); return; }
+    payload.user_id = userId;
+  }
+  if (["add_coins", "remove_coins"].includes(action)) {
+    if (!Number.isInteger(amount) || amount <= 0) { alert("Укажи положительную сумму DC."); return; }
+    payload.amount = amount;
+  }
+  try {
+    await api("/api/admin/action", { method: "POST", body: JSON.stringify(payload) });
+    alert("Действие выполнено.");
+    if (state.view === "admin-promos") await loadAdminOverview();
+  } catch (error) { alert(error.message || "Админ-действие не выполнено."); }
+}
+
 async function loadTop() {
   try {
     if (!state.initData) return;
