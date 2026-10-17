@@ -18,6 +18,7 @@ const state = {
   initData: "",
   activeGame: null,
   minesGame: null,
+  crashGame: null,
 };
 
 const icon = (value) => `<span class="row-icon">${value}</span>`;
@@ -86,6 +87,7 @@ function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (cha
 function render() {
   const view = state.view;
   if (view === "mines-active") return renderMines();
+  if (view === "crash-active") return renderCrash();
   if (view.startsWith("play:")) return renderGame(view.split(":")[1]);
   if (view.startsWith("case:")) return renderCase(view.split(":")[1]);
   if (view === "pandora") return renderPandora();
@@ -97,6 +99,10 @@ function render() {
 }
 function renderGame(game) {
   const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
+  if (game === "crash") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Выбери режим, ставку и решай, когда забрать выигрыш.", `<div class="modal"><h2>Crash</h2><div class="grid two"><button class="button secondary" data-action="crash-mode" data-mode="normal">🚀 Обычный полёт</button><button class="button secondary" data-action="crash-mode" data-mode="turbo">⚡ Турбо</button></div><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="crash-start">Начать Crash</button>${btn("К играм", "games")}</div></div>`);
+    return;
+  }
   if (game === "mines") {
     document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
     return;
@@ -119,6 +125,10 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "transfer-send") { transferCoins(); return; }
   if (target.dataset.action === "daily-bonus") { claimDailyBonus(); return; }
   if (target.dataset.action === "mines-start") { startMines(); return; }
+  if (target.dataset.action === "crash-mode") { state.crashMode = target.dataset.mode; document.querySelectorAll("[data-action='crash-mode']").forEach(node => node.classList.toggle("primary", node.dataset.mode === state.crashMode)); return; }
+  if (target.dataset.action === "crash-start") { startCrash(); return; }
+  if (target.dataset.action === "crash-forward") { crashAction("forward"); return; }
+  if (target.dataset.action === "crash-cashout") { crashAction("cashout"); return; }
   if (target.dataset.action === "mines-cell") { minesAction("cell", Number(target.dataset.cell)); return; }
   if (target.dataset.action === "mines-cashout") { minesAction("cashout"); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
@@ -191,6 +201,38 @@ async function redeemPromo() {
     const reward = data.reward_type === "coins" ? `${format(Number(data.reward || 0))} DC` : data.reward_type === "case" ? `${data.case_count} кейс(а): ${data.case_id}` : String(data.reward || data.reward_type);
     showNotice("Промокод активирован", `Код ${data.code} принят. Награда: ${reward}. Баланс: ${format(data.balance)} DC.`, btn("В профиль", "profile", "primary"));
   } catch (error) { alert(error.message || "Не удалось активировать промокод."); }
+}
+
+function renderCrash() {
+  const game = state.crashGame;
+  if (!game) { state.view = "play:crash"; render(); return; }
+  const multiplier = Number(game.multiplier || 1).toFixed(2);
+  const summary = game.finished
+    ? `<div class="notice"><b>${game.won ? "✓" : "×"}</b><span>${game.won ? `Выигрыш: ${format(game.prize || 0)} DC` : "Взрыв! Ставка проиграна."} Баланс: ${format(game.balance)} DC.</span></div>`
+    : `<div class="notice"><b>🚀</b><span>Высота: ${game.height} м · коэффициент ×${multiplier} · можно забрать ${format(game.current_prize)} DC.</span></div>`;
+  document.querySelector("#screen").innerHTML = page("Crash", `Режим: ${game.mode === "turbo" ? "Турбо" : "Обычный"} · ставка ${format(game.bet)} DC`, `<div class="balance-card"><div class="balance-label">Текущий коэффициент</div><div class="balance-number">×${multiplier}</div><p class="lead">Чем дальше летит ракета, тем выше потенциальный выигрыш.</p></div><div class="section">${summary}</div><div class="modal-actions">${game.finished ? `<button class="button primary" data-view="play:crash">Играть ещё</button>${btn("Все игры", "games")}` : `<button class="button primary" data-action="crash-forward">🚀 Вперёд</button><button class="button secondary" data-action="crash-cashout">Забрать ${format(game.current_prize)} DC</button>`}</div>`);
+}
+async function startCrash() {
+  const bet = Number(document.querySelector("#game-bet")?.value);
+  const mode = state.crashMode || "normal";
+  if (!Number.isSafeInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
+  try {
+    state.crashGame = await api("/api/crash/start", { method: "POST", body: JSON.stringify({ bet, mode }) });
+    state.balance = state.crashGame.balance;
+    state.view = "crash-active";
+    render();
+  } catch (error) { alert(error.message || "Не удалось начать Crash."); }
+}
+async function crashAction(action) {
+  if (!state.crashGame) return;
+  try {
+    const data = await api("/api/crash/action", { method: "POST", body: JSON.stringify({ token: state.crashGame.token, action }) });
+    state.crashGame = data;
+    state.balance = data.balance;
+    if (data.finished) await syncProfile();
+    if (data.continued_by_booster) alert("Бустер «Повтор» спас игру. Продолжай!");
+    render();
+  } catch (error) { alert(error.message || "Не удалось выполнить действие Crash."); }
 }
 
 function renderMines() {
