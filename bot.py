@@ -9253,6 +9253,18 @@ async def miniapp_top(request: web.Request) -> web.Response:
     )
 
 
+async def miniapp_jackpot(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    summary = await db.jackpot_summary(user["id"])
+    top = await db.jackpot_top()
+    winners = await db.jackpot_winners()
+    return web.json_response({
+        "summary": summary,
+        "top": [{"name": str(row[0]), "tickets": int(row[1])} for row in top],
+        "winners": [{"name": str(row[2]), "date": str(row[0]), "prize": int(row[1])} for row in winners],
+    })
+
+
 async def miniapp_set_booster(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     try:
@@ -9571,6 +9583,7 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/miniapp/{filename}", miniapp_asset)
     app.router.add_get("/api/me", miniapp_me)
     app.router.add_get("/api/top", miniapp_top)
+    app.router.add_get("/api/jackpot", miniapp_jackpot)
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
     app.router.add_post("/api/game/play", miniapp_play_game)
