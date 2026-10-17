@@ -9296,10 +9296,20 @@ async def miniapp_transfer(request: web.Request) -> web.Response:
     if not 1 <= amount <= 9_000_000_000_000_000:
         raise web.HTTPBadRequest(text="Invalid transfer amount")
     if recipient_text.startswith("@"):
-        recipient = await db.find_user_by_username(recipient_text)
+        username = recipient_text[1:].strip().lower()
+        if not username or any(ch.isspace() for ch in username):
+            raise web.HTTPBadRequest(text="Invalid username")
+        recipient = await db.find_user_by_username(username)
         if not recipient:
             raise web.HTTPNotFound(text="Username not found. The recipient must have used the bot or written in the main chat.")
         recipient_id, recipient_name = int(recipient[0]), str(recipient[1])
+        bot: Bot = request.app["bot"]
+        try:
+            telegram_recipient = await bot.get_chat(recipient_id)
+        except Exception:
+            raise web.HTTPBadRequest(text="Could not verify the recipient username. Use their numeric Telegram ID.")
+        if not telegram_recipient.username or telegram_recipient.username.lower() != username:
+            raise web.HTTPBadRequest(text="Recipient username has changed. Use their current username or numeric Telegram ID.")
     else:
         try:
             recipient_id = int(recipient_text)
