@@ -9472,7 +9472,17 @@ async def miniapp_admin_overview(request: web.Request) -> web.Response:
         async with connection.execute("SELECT COUNT(*) FROM premium_orders") as cursor:
             premium_orders = int((await cursor.fetchone())[0])
     promos = await db.get_promos()
-    return web.json_response({"players": players, "pending_gifts": pending_gifts, "premium_orders": premium_orders, "promos": [{"code": code, "reward": reward, "type": kind, "case_id": case_id, "case_count": count, "max_uses": maximum, "uses": uses} for code, reward, kind, case_id, count, maximum, uses in promos], "star_packages": STAR_DC_PACKAGES})
+    gifts = await db.get_pending_gifts()
+    orders = await db.get_premium_orders()
+    return web.json_response({
+        "players": players,
+        "pending_gifts": pending_gifts,
+        "premium_orders": premium_orders,
+        "promos": [{"code": code, "reward": reward, "type": kind, "case_id": case_id, "case_count": count, "max_uses": maximum, "uses": uses} for code, reward, kind, case_id, count, maximum, uses in promos],
+        "pending_gift_items": [{"id": row[0], "user_id": row[1], "user_name": row[2], "gift_id": row[3], "reason": row[4]} for row in gifts[:20]],
+        "premium_order_items": [{"id": row[0], "user_id": row[1], "user_name": row[2], "cost": row[3]} for row in orders[:20]],
+        "star_packages": STAR_DC_PACKAGES,
+    })
 
 
 async def miniapp_admin_action(request: web.Request) -> web.Response:
@@ -9507,6 +9517,40 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
         await db.ban_user(user_id, str(payload.get("reason", ""))[:300])
     elif action == "unban":
         await db.unban_user(user_id)
+    elif action in {"deliver_pending_gift", "delete_pending_gift"}:
+        try:
+            gift_db_id = int(payload["item_id"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="A valid pending gift ID is required")
+        gift = next((item for item in await db.get_pending_gifts() if int(item[0]) == gift_db_id), None)
+        if not gift:
+            raise web.HTTPNotFound(text="Pending gift was not found")
+        if action == "deliver_pending_gift":
+            bot: Bot = request.app["bot"]
+            try:
+                await send_bot_gift(bot, int(gift[1]), str(gift[3]))
+            except Exception:
+                logger.exception("Mini App pending gift delivery failed")
+                raise web.HTTPBadGateway(text="Telegram could not queue this gift")
+        await db.remove_pending_gift(gift_db_id)
+    elif action in {"premium_done", "premium_refund"}:
+        try:
+            order_id = int(payload["item_id"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="A valid Premium order ID is required")
+        order = next((item for item in await db.get_premium_orders() if int(item[0]) == order_id), None)
+        if not order:
+            raise web.HTTPNotFound(text="Premium order was not found")
+        _, target_user_id, target_name, cost, _created = order
+        bot: Bot = request.app["bot"]
+        if action == "premium_refund":
+            await db.add_coins(int(target_user_id), int(cost))
+        await db.remove_premium_order(order_id)
+        try:
+            note = "💎 Premium на месяц выдан." if action == "premium_done" else f"↩️ Тебе вернули {int(cost):,} DC.".replace(",", " ")
+            await bot.send_message(int(target_user_id), note)
+        except Exception:
+            logger.warning("Mini App could not notify Premium order user %s", target_user_id)
     else:
         raise web.HTTPBadRequest(text="Unknown admin action")
     return web.json_response({"ok": True})
