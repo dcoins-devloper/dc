@@ -9426,6 +9426,7 @@ async def miniapp_mines_action(request: web.Request) -> web.Response:
         prize = booster_win_amount(golden_payout(mines_prize(game["bet"], safe_opened)), game.get("booster"))
         active_games.pop(user_id, None)
         await db.add_coins(user_id, prize)
+        await school_event.record(user_id, user["name"], f"mines:{token}:cashout", {"games": 1, "gamewin": 1, "bets": game["bet"]})
         return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
     if action != "cell" or cell is None or not 0 <= cell < MINES_GRID_SIZE:
         raise web.HTTPBadRequest(text="Invalid cell")
@@ -9440,13 +9441,16 @@ async def miniapp_mines_action(request: web.Request) -> web.Response:
             active_games.pop(user_id, None)
             refund = await booster_loss_refund(user_id, game["bet"], game.get("booster"))
             await db.record_jackpot_loss(user_id, user["name"], game["bet"], f"mini:mines:{token}")
+            await school_event.record(user_id, user["name"], f"mines:{token}:loss", {"games": 1, "gamewin": 0, "bets": game["bet"]})
             return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": False, "prize": 0, "refund": refund, "balance": await db.get_display_balance(user_id)})
     else:
         game["opened"].add(cell)
+        await school_event.record(user_id, user["name"], f"safe:mini:{token}:{cell}", {"safe": 1})
     if len(game["opened"]) >= MINES_GRID_SIZE - MINES_COUNT:
         prize = booster_win_amount(golden_payout(mines_prize(game["bet"], len(game["opened"]))), game.get("booster"))
         active_games.pop(user_id, None)
         await db.add_coins(user_id, prize)
+        await school_event.record(user_id, user["name"], f"mines:{token}:clear", {"games": 1, "gamewin": 1, "bets": game["bet"]})
         return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
     return web.json_response({**miniapp_mines_payload(game), "won": None, "balance": await db.get_display_balance(user_id)})
 
