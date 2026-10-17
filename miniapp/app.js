@@ -218,7 +218,7 @@ async function runAdminAction(action, itemId) {
   try {
     await api("/api/admin/action", { method: "POST", body: JSON.stringify(payload) });
     alert("Действие выполнено.");
-    if (state.view === "admin-promos") await loadAdminOverview();
+    if (["admin-promos", "admin-settings"].includes(state.view)) await loadAdminOverview();
   } catch (error) { alert(error.message || "Админ-действие не выполнено."); }
 }
 
