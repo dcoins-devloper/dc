@@ -17,6 +17,7 @@ const state = {
   top: [],
   initData: "",
   activeGame: null,
+  minesGame: null,
 };
 
 const icon = (value) => `<span class="row-icon">${value}</span>`;
@@ -84,6 +85,7 @@ function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (cha
 
 function render() {
   const view = state.view;
+  if (view === "mines-active") return renderMines();
   if (view.startsWith("play:")) return renderGame(view.split(":")[1]);
   if (view.startsWith("case:")) return renderCase(view.split(":")[1]);
   if (view === "pandora") return renderPandora();
@@ -95,6 +97,10 @@ function render() {
 }
 function renderGame(game) {
   const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
+  if (game === "mines") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
+    return;
+  }
   const options={slots:[["spin","Крутить барабаны"]],roulette:[["red","🔴 Красное"],["black","⚫ Чёрное"],["green","🟢 Зелёное · ×3"]],dice:[["1","1"],["2","2"],["3","3"],["4","4"],["5","5"],["6","6"]],coinflip:[["heads","🦅 Орёл"],["tails","🔵 Решка"]],scratch:[["reveal","Открыть скретч-карту"]],lottery:Array.from({length:25},(_,i)=>[String(i),`Билет ${i+1}`])}[game];
   if (!options) { document.querySelector("#screen").innerHTML = page(names[game], "Этот режим переносится следующим — остальные игры уже доступны в боте.", `${btn("К играм", "games")}`); return; }
   document.querySelector("#screen").innerHTML = page(names[game], "Минимальная ставка — 5 DC.", `<div class="modal"><h2>${names[game]}</h2><p>${state.booster ? `Активный бустер: ${state.booster}.` : "Бустер не выбран."}</p><div class="section"><select id="game-option" class="input">${options.map(([value,label])=>`<option value="${value}">${label}</option>`).join("")}</select></div><div class="section"><input id="game-bet" class="input" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="play-game" data-game="${game}">Начать игру</button>${btn("К играм", "games")}</div></div>`);
@@ -112,6 +118,9 @@ document.addEventListener("click", (event) => {
   if (target.dataset.view === "support-send") { alert("Чат поддержки пока не подключён к Mini App API. Напиши через бота."); return; }
   if (target.dataset.action === "transfer-send") { transferCoins(); return; }
   if (target.dataset.action === "daily-bonus") { claimDailyBonus(); return; }
+  if (target.dataset.action === "mines-start") { startMines(); return; }
+  if (target.dataset.action === "mines-cell") { minesAction("cell", Number(target.dataset.cell)); return; }
+  if (target.dataset.action === "mines-cashout") { minesAction("cashout"); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
@@ -182,6 +191,40 @@ async function redeemPromo() {
     const reward = data.reward_type === "coins" ? `${format(Number(data.reward || 0))} DC` : data.reward_type === "case" ? `${data.case_count} кейс(а): ${data.case_id}` : String(data.reward || data.reward_type);
     showNotice("Промокод активирован", `Код ${data.code} принят. Награда: ${reward}. Баланс: ${format(data.balance)} DC.`, btn("В профиль", "profile", "primary"));
   } catch (error) { alert(error.message || "Не удалось активировать промокод."); }
+}
+
+function renderMines() {
+  const game = state.minesGame;
+  if (!game) { state.view = "play:mines"; render(); return; }
+  const cells = (game.cells || []).map((cell, index) => {
+    const label = cell === "mine" ? "💣" : cell === "safe" ? "✓" : cell === "opened" ? "✓" : "❔";
+    const disabled = game.finished || cell !== "hidden";
+    return `<button class="mine-cell ${cell}" type="button" data-action="mines-cell" data-cell="${index}" ${disabled ? "disabled" : ""} aria-label="Клетка ${index + 1}">${label}</button>`;
+  }).join("");
+  const result = game.finished
+    ? `<div class="notice"><b>${game.won ? "✓" : "×"}</b><span>${game.won ? `Выигрыш: ${format(game.prize || 0)} DC` : `Ставка проиграна${game.refund ? `. Возврат: ${format(game.refund)} DC` : ""}`}. Баланс: ${format(game.balance)} DC.</span></div>`
+    : `<div class="notice"><b>💰</b><span>Открыто безопасных клеток: ${game.safe_opened}. Потенциальный выигрыш: ${format(game.current_prize)} DC.</span></div>`;
+  document.querySelector("#screen").innerHTML = page("Мины", `Ставка: ${format(game.bet)} DC`, `<div class="mines-grid">${cells}</div><div class="section">${result}</div><div class="modal-actions">${game.finished ? `<button class="button primary" data-view="play:mines">Играть ещё</button>${btn("Все игры", "games")}` : `<button class="button primary" data-action="mines-cashout" ${game.safe_opened < 1 ? "disabled" : ""}>Забрать ${format(game.current_prize)} DC</button><button class="button secondary" data-view="games">Выйти из игры</button>`}</div>`);
+}
+async function startMines() {
+  const bet = Number(document.querySelector("#game-bet")?.value);
+  if (!Number.isSafeInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
+  try {
+    state.minesGame = await api("/api/mines/start", { method: "POST", body: JSON.stringify({ bet }) });
+    state.balance = state.minesGame.balance;
+    state.view = "mines-active";
+    render();
+  } catch (error) { alert(error.message || "Не удалось начать игру."); }
+}
+async function minesAction(action, cell) {
+  if (!state.minesGame) return;
+  try {
+    const data = await api("/api/mines/action", { method: "POST", body: JSON.stringify({ token: state.minesGame.token, action, ...(cell === undefined ? {} : { cell }) }) });
+    state.minesGame = data;
+    state.balance = data.balance;
+    if (data.finished) await syncProfile();
+    render();
+  } catch (error) { alert(error.message || "Не удалось выполнить ход."); }
 }
 
 async function purchaseStars(amount) {
