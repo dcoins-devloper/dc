@@ -9253,6 +9253,106 @@ async def miniapp_top(request: web.Request) -> web.Response:
     )
 
 
+def miniapp_mines_payload(game: dict, reveal: bool = False) -> dict:
+    opened = game["opened"]
+    mines = game["mines"]
+    return {
+        "token": game["token"],
+        "bet": game["bet"],
+        "opened": sorted(opened),
+        "cells": [
+            ("mine" if index in mines else "safe") if reveal and index in mines | opened
+            else ("opened" if index in opened else "hidden")
+            for index in range(MINES_GRID_SIZE)
+        ],
+        "safe_opened": len(opened),
+        "multiplier": mines_multiplier(len(opened)),
+        "current_prize": golden_payout(mines_prize(game["bet"], len(opened))) if opened else 0,
+        "finished": reveal,
+    }
+
+
+async def miniapp_mines_start(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    user_id = user["id"]
+    if await db.is_banned(user_id):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        bet = int((await request.json())["bet"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a whole-number bet")
+    if not CASINO_MIN_BET <= bet <= MAX_BET:
+        raise web.HTTPBadRequest(text=f"Bet must be between {CASINO_MIN_BET} and {MAX_BET}")
+    if user_id in active_games:
+        raise web.HTTPConflict(text="Finish your active game first")
+    if user_id in casino_bet_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {CASINO_BET_COOLDOWN} seconds before the next bet")
+    balance, _ = await db.get_coins(user_id)
+    booster, error = await selected_booster_for_bet(user_id, bet, balance)
+    if error:
+        raise web.HTTPBadRequest(text=error)
+    casino_bet_cooldowns[user_id] = True
+    game = {
+        "game": "mines",
+        "token": secrets.token_hex(12),
+        "bet": bet,
+        "mines": set(random.sample(range(MINES_GRID_SIZE), MINES_COUNT)),
+        "opened": set(),
+        "chat_id": user_id,
+        "expires": time.time() + CASINO_TIMEOUT,
+        "booster": booster,
+    }
+    active_games[user_id] = game
+    return web.json_response({**miniapp_mines_payload(game), "balance": await db.get_display_balance(user_id)})
+
+
+async def miniapp_mines_action(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    user_id = user["id"]
+    if await db.is_banned(user_id):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        token = str(payload["token"])
+        action = str(payload["action"])
+        cell = int(payload["cell"]) if "cell" in payload else None
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid mines action")
+    game = active_games.get(user_id)
+    if not game or game.get("game") != "mines" or game.get("token") != token or game["expires"] <= time.time():
+        raise web.HTTPConflict(text="This mines game has ended or expired")
+    if action == "cashout":
+        safe_opened = len(game["opened"])
+        if not safe_opened:
+            raise web.HTTPBadRequest(text="Open at least one safe cell before cashing out")
+        prize = booster_win_amount(golden_payout(mines_prize(game["bet"], safe_opened)), game.get("booster"))
+        active_games.pop(user_id, None)
+        await db.add_coins(user_id, prize)
+        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
+    if action != "cell" or cell is None or not 0 <= cell < MINES_GRID_SIZE:
+        raise web.HTTPBadRequest(text="Invalid cell")
+    if cell in game["opened"]:
+        raise web.HTTPBadRequest(text="Cell is already open")
+    if cell in game["mines"]:
+        if booster_can_repeat(game.get("booster"), "mines"):
+            game["mines"].discard(cell)
+            game["booster"] = None
+            game["opened"].add(cell)
+        else:
+            active_games.pop(user_id, None)
+            refund = await booster_loss_refund(user_id, game["bet"], game.get("booster"))
+            await db.record_jackpot_loss(user_id, user["name"], game["bet"], f"mini:mines:{token}")
+            return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": False, "prize": 0, "refund": refund, "balance": await db.get_display_balance(user_id)})
+    else:
+        game["opened"].add(cell)
+    if len(game["opened"]) >= MINES_GRID_SIZE - MINES_COUNT:
+        prize = booster_win_amount(golden_payout(mines_prize(game["bet"], len(game["opened"]))), game.get("booster"))
+        active_games.pop(user_id, None)
+        await db.add_coins(user_id, prize)
+        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
+    return web.json_response({**miniapp_mines_payload(game), "won": None, "balance": await db.get_display_balance(user_id)})
+
+
 async def miniapp_create_invoice(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     if await db.is_banned(user["id"]):
@@ -9702,6 +9802,8 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/api/transfer", miniapp_transfer)
     app.router.add_post("/api/bonus", miniapp_bonus)
     app.router.add_post("/api/purchase/invoice", miniapp_create_invoice)
+    app.router.add_post("/api/mines/start", miniapp_mines_start)
+    app.router.add_post("/api/mines/action", miniapp_mines_action)
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
     app.router.add_post("/api/game/play", miniapp_play_game)
