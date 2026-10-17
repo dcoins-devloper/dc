@@ -114,7 +114,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "daily-bonus") { claimDailyBonus(); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
-  if (target.dataset.action === "buy") { alert("Покупка Stars пока не подключена к Mini App. Используй раздел покупки в боте; баланс здесь не меняется."); return; }
+  if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
   if (target.dataset.action === "admin-refresh") { loadAdminOverview(); return; }
   if (target.dataset.action === "admin-do") { runAdminAction(target.dataset.adminAction, target.dataset.itemId); return; }
   if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
