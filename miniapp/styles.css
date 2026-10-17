@@ -87,3 +87,5 @@ h2 { font-size: 18px; letter-spacing: -.02em; }
 .nav-item { display:grid; gap:4px; place-items:center; min-height:51px; border:0; background:transparent; color:var(--muted); font-size:10px; cursor:pointer; }.nav-item span{ font-size:17px; line-height:1; }.nav-item.active{ color:var(--amber); }.nav-item.active span{ text-shadow:0 0 13px rgba(242,188,79,.4); }
 .hidden { display:none !important; }
 @media (max-width: 360px) { .app-shell{padding-left:12px;padding-right:12px}.game-card{min-height:118px}.bottom-nav{font-size:9px} }
+
+.mines-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.mine-cell{width:100%;aspect-ratio:1;border-radius:12px;font-size:22px}.mine-cell.opened,.mine-cell.safe{background:#173a31}.mine-cell.mine{background:#4a2226}

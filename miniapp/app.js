@@ -7,9 +7,22 @@ const state = {
   isAdmin: false,
   booster: null,
   boosters: [],
+  caseKeys: {},
+  pandoraRemaining: 0,
+  jackpot: null,
+  jackpotTop: null,
+  jackpotWinners: null,
+  supportAccess: false,
+  adminOverview: null,
+  miniEvent: null,
+  miniEventLoaded: false,
+  duels: [],
+  duelsLoaded: false,
   top: [],
   initData: "",
   activeGame: null,
+  minesGame: null,
+  crashGame: null,
 };
 
 const icon = (value) => `<span class="row-icon">${value}</span>`;
@@ -44,24 +57,25 @@ const views = {
     ${caseCard("P", "Ящик Пандоры", "Бесплатно раз в 5 дней", "pandora")}
   </div>`),
   boosters: () => page("Бустеры", "Выбери один бустер для следующей игры.", `<div class="notice"><b>⚡</b><span>${state.booster ? `Активен: ${state.booster}` : "Активный бустер пока не выбран."}</span></div><div class="section list">${boosters()}</div>`),
-  inventory: () => page("Инвентарь", "Твои полученные бустеры и кейсы.", `<div class="stat-row"><div class="stat"><b>0</b><small>Бустеров</small></div><div class="stat"><b>0</b><small>Ключей кейсов</small></div><div class="stat"><b>—</b><small>Активный</small></div></div><div class="section"><div class="notice"><b>⌁</b><span>Предметы из инвентаря появляются после выигрыша, промокода или раздачи.</span></div></div>`),
-  jackpot: () => page("Джекпот дня", "Розыгрыш проходит каждый день в 00:00 по Москве.", `<div class="balance-card"><div class="balance-label">Текущий призовой фонд</div><div class="balance-number">0 <small>DC</small></div><p class="lead">Билеты начисляются за проигрыши в играх.</p></div><div class="section list"><button class="list-row" data-view="jackpot-top">${icon("#")}<span class="row-main"><strong>Топ билетов</strong><span>Участники сегодняшнего розыгрыша</span></span><span class="row-side">›</span></button><button class="list-row" data-view="jackpot-winners">${icon("★")}<span class="row-main"><strong>Победители</strong><span>История последних выигрышей</span></span><span class="row-side">›</span></button></div>`),
+  inventory: () => page("Инвентарь", "Твои полученные бустеры и ключи кейсов.", `<div class="stat-row"><div class="stat"><b>${state.boosters.reduce((sum, b) => sum + Number(b.amount || 0), 0)}</b><small>Бустеров</small></div><div class="stat"><b>${Object.values(state.caseKeys).reduce((sum, n) => sum + Number(n || 0), 0)}</b><small>Ключей кейсов</small></div><div class="stat"><b>${escapeHtml(state.booster || "—")}</b><small>Активный</small></div></div><div class="section list">${state.boosters.map(b => `<div class="list-row">${icon("⚡")}<span class="row-main"><strong>${escapeHtml(b.title)} ×${b.amount}</strong><span>${escapeHtml(b.description)}</span></span><span class="tag amber">${b.amount}</span></div>`).join("") || '<div class="notice"><b>⌁</b><span>Бустеров пока нет.</span></div>'}${Object.entries(state.caseKeys).filter(([,n]) => Number(n) > 0).map(([id,n]) => `<div class="list-row">${icon("▣")}<span class="row-main"><strong>${escapeHtml(({blood:"BLOOD",pantera:"PANTERA",spider_man:"SPIDER MAN"})[id] || id)}</strong><span>Ключи кейса</span></span><span class="tag amber">×${n}</span></div>`).join("")}</div>`),
+  jackpot: () => page("Джекпот дня", "Розыгрыш проходит каждый день в 00:00 по Москве.", `<div class="balance-card"><div class="balance-label">Твои билеты сегодня</div><div class="balance-number">${format(state.jackpot?.tickets ?? 0)} <small>из 20</small></div><p class="lead">Призовой фонд: ${format(state.jackpot?.pool ?? 0)} DC · участников: ${format(state.jackpot?.players ?? 0)}</p></div><div class="section list"><button class="list-row" data-view="jackpot-top">${icon("#")}<span class="row-main"><strong>Топ билетов</strong><span>Участники сегодняшнего розыгрыша</span></span><span class="row-side">›</span></button><button class="list-row" data-view="jackpot-winners">${icon("★")}<span class="row-main"><strong>Победители</strong><span>История последних выигрышей</span></span><span class="row-side">›</span></button></div>`),
   buy: () => page("Купить D-COINS", "Покупка за Telegram Stars.", `<div class="list">${[100,200,300,400,500,600,700,800,900,1000].map(n => `<button class="list-row" data-action="buy" data-amount="${n * 1000}">${icon("✦")}<span class="row-main"><strong>${n} 000 DC</strong><span>Пополнение баланса</span></span><span class="tag amber">${n * 2} ⭐</span></button>`).join("")}</div>`),
-  profile: () => page("Профиль", "Управление балансом и игровым аккаунтом.", `<div class="balance-card"><div class="balance-label">Текущий баланс</div><div class="balance-number">${state.hiddenBalance ? "••••••" : `${format(state.balance)} <small>DC</small>`}</div><div class="balance-actions">${btn(state.hiddenBalance ? "Показать в топе" : "Скрыть в топе", "toggle-privacy")}</div></div><div class="section list"><button class="list-row" data-view="top">${icon("#")}<span class="row-main"><strong>Топ игроков</strong><span>Рейтинг по D-COINS</span></span><span class="row-side">›</span></button><button class="list-row" data-view="promo">${icon("⌁")}<span class="row-main"><strong>Промокод</strong><span>Активировать код</span></span><span class="row-side">›</span></button><button class="list-row" data-view="support">${icon("?")}<span class="row-main"><strong>Чат с администратором</strong><span>Доступен при разрешении</span></span><span class="row-side">›</span></button></div>`),
+  transfer: () => page("Перевод D-COINS", "Переводи DC игрокам, которых бот знает по @username или Telegram ID.", `<div class="modal"><h2>Новый перевод</h2><div class="section"><input class="input" id="transfer-recipient" placeholder="@username или Telegram ID" autocomplete="off" maxlength="64" /></div><div class="section"><input class="input" id="transfer-amount" type="number" min="1" step="1" placeholder="Сумма в DC" /></div><p class="lead">Твой баланс: ${format(state.balance)} DC. Перевод нельзя отправить самому себе; сумма проверяется сервером.</p><div class="modal-actions"><button class="button primary" data-action="transfer-send">Перевести</button>${btn("Назад в профиль","profile")}</div></div>`),
+  profile: () => page("Профиль", "Управление балансом и игровым аккаунтом.", `<div class="balance-card"><div class="balance-label">Текущий баланс</div><div class="balance-number">${state.hiddenBalance ? "••••••" : `${format(state.balance)} <small>DC</small>`}</div><div class="balance-actions">${btn(state.hiddenBalance ? "Показать в топе" : "Скрыть в топе", "toggle-privacy")}</div></div><div class="section list"><button class="list-row" data-view="top">${icon("#")}<span class="row-main"><strong>Топ игроков</strong><span>Рейтинг по D-COINS</span></span><span class="row-side">›</span></button><button class="list-row" data-view="transfer">${icon("⇄")}<span class="row-main"><strong>Перевести DC</strong><span>Отправить монеты другому игроку</span></span><span class="row-side">›</span></button><button class="list-row" data-action="daily-bonus">${icon("🎁")}<span class="row-main"><strong>Ежедневный бонус</strong><span>Получить монеты и шанс, если доступно</span></span><span class="row-side">›</span></button><button class="list-row" data-view="promo">${icon("⌁")}<span class="row-main"><strong>Промокод</strong><span>Активировать код</span></span><span class="row-side">›</span></button><button class="list-row" data-view="support">${icon("?")}<span class="row-main"><strong>Чат с администратором</strong><span>Доступен при разрешении</span></span><span class="row-side">›</span></button></div>`),
   more: () => page("Ещё", "Дополнительные разделы D-COINS.", `<div class="list"><button class="list-row" data-view="inventory">${icon("▦")}<span class="row-main"><strong>Инвентарь</strong><span>Бустеры и ключи кейсов</span></span><span class="row-side">›</span></button><button class="list-row" data-view="duels">${icon("⚔")}<span class="row-main"><strong>Дуэли</strong><span>Игры с другими участниками</span></span><span class="row-side">›</span></button><button class="list-row" data-view="mini-events">${icon("⚡")}<span class="row-main"><strong>Мини-ивенты</strong><span>Активности из канала</span></span><span class="row-side">›</span></button><button class="list-row" data-view="help">${icon("i")}<span class="row-main"><strong>Как играть</strong><span>Короткие правила</span></span><span class="row-side">›</span></button>${state.isAdmin ? `<button class="list-row" data-view="admin">${icon("⚙")}<span class="row-main"><strong>Админ-панель</strong><span>Управление ботом</span></span><span class="row-side">›</span></button>` : ""}</div>`),
   admin: () => page("Админ-панель", "Управление доступно только владельцу бота.", `<div class="list"><button class="list-row" data-view="admin-users">${icon("♙")}<span class="row-main"><strong>Пользователи</strong><span>Баланс, блокировки и VIP</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-economy">${icon("◈")}<span class="row-main"><strong>Экономика</strong><span>Цены Stars и шансы кейсов</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-promos">${icon("⌁")}<span class="row-main"><strong>Промокоды и раздачи</strong><span>Создание и управление</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-settings">${icon("⚙")}<span class="row-main"><strong>Настройки</strong><span>Сервисные действия</span></span><span class="row-side">›</span></button></div>`),
-  top: () => page("Топ игроков", "Баланс скрытых игроков не раскрывается.", `<div class="list">${state.top.length ? state.top.map((player, i) => `<div class="list-row">${icon(i + 1)}<span class="row-main"><strong>${player.name}</strong><span>${player.hidden && player.balance === null ? "🔒 Скрыто" : `${format(player.balance)} DC`}</span></span>${i === 0 ? '<span class="tag amber">Лидер</span>' : ""}</div>`).join("") : '<div class="notice"><b>⌁</b><span>Загружаем рейтинг…</span></div>'}</div>`),
-  promo: () => page("Промокод", "Введи код, который получил в канале или у администрации.", `<div class="modal"><h2>Активация промокода</h2><p>Код можно активировать один раз, если его лимит ещё не исчерпан.</p><div class="section"><input class="input" placeholder="Введите код" autocomplete="off" /></div><div class="modal-actions">${btn("Активировать", "promo-activate", "primary")}</div></div>`),
-  support: () => page("Чат с администратором", "Этот раздел доступен только пользователям с разрешением.", `<div class="modal"><h2>Диалог с поддержкой</h2><p>Напиши сообщение — оно попадёт администратору в боте.</p><div class="section"><input class="input" placeholder="Сообщение" /></div><div class="modal-actions">${btn("Отправить", "support-send", "cyan")}</div></div>`),
-  duels: () => page("Дуэли", "Дуэли проводятся в разрешённых чатах D-COINS.", `<div class="notice"><b>⚔</b><span>Минимальная ставка — 5 DC, максимальная — 100 000 DC. Комиссии нет.</span></div>`),
-  "mini-events": () => page("Мини-ивенты", "Активные мини-ивенты публикуются в новостном канале.", `<div class="notice"><b>⚡</b><span>Когда ивент начнётся, здесь появится его карточка и кнопка участия.</span></div>`),
+  top: () => page("Топ игроков", "Баланс скрытых игроков не раскрывается.", `<div class="list">${state.top.length ? state.top.map((player, i) => `<div class="list-row">${icon(i + 1)}<span class="row-main"><strong>${escapeHtml(player.name)}</strong><span>${player.hidden && player.balance === null ? "🔒 Скрыто" : `${format(player.balance)} DC`}</span></span>${i === 0 ? '<span class="tag amber">Лидер</span>' : ""}</div>`).join("") : '<div class="notice"><b>⌁</b><span>Загружаем рейтинг…</span></div>'}</div>`),
+  promo: () => page("Промокод", "Введи код, который получил в канале или у администрации.", `<div class="modal"><h2>Активация промокода</h2><p>Код можно активировать один раз, если его лимит ещё не исчерпан.</p><div class="section"><input class="input" id="promo-code" placeholder="Введите код" autocomplete="off" maxlength="32" /></div><div class="modal-actions">${btn("Активировать", "promo-activate", "primary")}</div></div>`),
+  support: () => page("Чат с администратором", state.supportAccess ? "Напиши сообщение — оно попадёт администратору в боте." : "Для доступа к диалогу требуется разрешение администрации.", state.supportAccess ? `<div class="modal"><h2>Диалог с поддержкой</h2><p>Не отправляй коды входа Telegram, пароль 2FA или строку сессии.</p><div class="section"><textarea class="input" id="support-message" rows="4" maxlength="2000" placeholder="Напиши сообщение..."></textarea></div><div class="modal-actions"><button class="button primary" data-action="support-send">Отправить</button><button class="button secondary" data-action="support-close">Закрыть диалог</button></div></div>` : `<div class="notice"><b>i</b><span>Доступ пока не выдан. Обратись к администратору через бота.</span></div>`),
+  duels: () => page("Дуэли", "Создавай вызов или принимай открытую дуэль. Победитель получает банк.", `<div class="modal"><h2>Создать дуэль</h2><p>Ставка каждого игрока: от 5 до 100 000 DC. Победитель получает сумму двух ставок.</p><div class="section"><input class="input" id="duel-bet" type="number" min="5" max="100000" step="1" placeholder="Твоя ставка" /></div><div class="modal-actions"><button class="button primary" data-action="duel-create">Создать вызов</button><button class="button secondary" data-action="duel-refresh">Обновить список</button></div></div><div class="section-title"><h2>Открытые дуэли</h2></div><div class="list">${state.duels.map(d => `<div class="list-row">${icon("⚔")}<span class="row-main"><strong>${escapeHtml(d.challenger_name)}</strong><span>Ставка ${format(d.bet)} DC · осталось ${formatDuration(d.expires_in)}</span></span>${d.mine ? `<button class="button secondary" data-action="duel-cancel" data-duel-id="${d.id}">Отменить</button>` : `<button class="button primary" data-action="duel-accept" data-duel-id="${d.id}" ${state.duels.some(x => x.mine) ? "disabled" : ""}>Принять</button>`}</div>`).join("") || '<div class="notice"><b>⚔</b><span>Открытых дуэлей пока нет.</span></div>'}</div>`),
+  "mini-events": () => state.miniEvent ? page("Мини-ивенты", "Активное событие из канала D-COINS.", `<div class="modal"><h2>${({first:"Первый участник",first_n:"Первые участники",ticket:"Счастливый билет"})[state.miniEvent.kind] || "Мини-ивент"}</h2><div class="stat-row"><div class="stat"><b>${format(state.miniEvent.reward)}</b><small>Награда DC</small></div><div class="stat"><b>${state.miniEvent.participants}</b><small>Участников</small></div><div class="stat"><b>${formatDuration(state.miniEvent.ends_in)}</b><small>Осталось</small></div></div><p class="lead">${state.miniEvent.kind === "ticket" ? "После завершения система выберет победителя случайным образом." : `Награда начисляется первым ${state.miniEvent.max_participants} участникам.`}</p><div class="modal-actions"><button class="button primary" data-action="mini-event-join" data-event-id="${state.miniEvent.id}" ${state.miniEvent.joined ? "disabled" : ""}>${state.miniEvent.joined ? "Ты уже участвуешь" : "Участвовать"}</button><button class="button secondary" data-action="mini-event-refresh">Обновить</button></div></div>`) : page("Мини-ивенты", "Активные события из канала D-COINS.", `<div class="notice"><b>⚡</b><span>${state.miniEventLoaded ? "Сейчас активных мини-ивентов нет. Новые события появятся здесь автоматически после обновления." : "Загружаем активные события..."}</span></div><div class="section"><button class="button secondary wide" data-action="mini-event-refresh">Обновить</button></div>`),
   help: () => page("Как играть", "Короткие правила без лишнего.", `<div class="list">${["Игры","Кейсы","Бустеры","Джекпот дня","Промокоды"].map((x,i)=>`<div class="list-row">${icon(i+1)}<span class="row-main"><strong>${x}</strong><span>${helpText(x)}</span></span></div>`).join("")}</div>`),
-  "jackpot-top": () => page("Топ билетов", "Участники сегодняшнего джекпота.", `<div class="notice"><b>⌾</b><span>Данные появятся после подключения к базе бота.</span></div>`),
-  "jackpot-winners": () => page("Победители", "Последние выигрыши джекпота.", `<div class="notice"><b>★</b><span>История появится после подключения к базе бота.</span></div>`),
-  "admin-users": () => page("Пользователи", "Раздел администраторских действий.", `<div class="notice"><b>♙</b><span>Список пользователей будет загружен из базы Mini App.</span></div>`),
-  "admin-economy": () => page("Экономика", "Управление ценами и шансами.", `<div class="notice"><b>◈</b><span>Изменения будут защищены проверкой администратора.</span></div>`),
-  "admin-promos": () => page("Промокоды и раздачи", "Управление наградами для игроков.", `<div class="notice"><b>⌁</b><span>Создание промокодов и раздач переносится из админ-панели бота.</span></div>`),
-  "admin-settings": () => page("Настройки", "Сервисные действия бота.", `<div class="notice"><b>⚙</b><span>Здесь будут доступны только безопасные действия владельца.</span></div>`),
+  "jackpot-top": () => page("Топ билетов", "Участники сегодняшнего джекпота.", `<div class="list">${state.jackpotTop?.length ? state.jackpotTop.map((p,i) => `<div class="list-row">${icon(i+1)}<span class="row-main"><strong>${escapeHtml(p.name)}</strong><span>Билеты за сегодня</span></span><span class="tag amber">${p.tickets}</span></div>`).join("") : '<div class="notice"><b>⌾</b><span>Пока нет участников с билетами.</span></div>'}</div>`),
+  "jackpot-winners": () => page("Победители", "Последние выигрыши джекпота.", `<div class="list">${state.jackpotWinners?.length ? state.jackpotWinners.map(p => `<div class="list-row">${icon("★")}<span class="row-main"><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml(p.date)}</span></span><span class="tag amber">${format(p.prize)} DC</span></div>`).join("") : '<div class="notice"><b>★</b><span>История выигрышей пока пуста.</span></div>'}</div>`),
+  "admin-users": () => page("Пользователи", "Действия доступны только владельцу бота.", `<div class="modal"><h2>Управление аккаунтом</h2><div class="section"><input class="input" id="admin-user-id" type="number" min="1" placeholder="Telegram ID пользователя" /></div><div class="section"><input class="input" id="admin-amount" type="number" min="1" placeholder="Сумма DC (для изменения баланса)" /></div><div class="section list"><button class="button primary" data-action="admin-do" data-admin-action="add_coins">Начислить DC</button><button class="button secondary" data-action="admin-do" data-admin-action="remove_coins">Снять DC</button><button class="button secondary" data-action="admin-do" data-admin-action="grant_support">Выдать доступ к поддержке</button><button class="button secondary" data-action="admin-do" data-admin-action="revoke_support">Забрать доступ к поддержке</button><button class="button danger" data-action="admin-do" data-admin-action="ban">Заблокировать</button><button class="button secondary" data-action="admin-do" data-admin-action="unban">Разблокировать</button><button class="button primary" data-action="admin-do" data-admin-action="vip">Выдать VIP</button><button class="button secondary" data-action="admin-do" data-admin-action="unvip">Снять VIP</button></div></div>`),
+  "admin-economy": () => page("Экономика", "Состояние экономических функций бота.", `<div class="notice"><b>i</b><span>Обмен DC на шанс, подарки и Premium сейчас отключён в конфигурации бота. Я не включаю его из Mini App, чтобы не менять экономику без отдельной проверки.</span></div><div class="section"><div class="list-row">${icon("⭐")}<span class="row-main"><strong>Покупка DC за Stars</strong><span>Доступна в разделе «Купить DC» и использует серверные счета Telegram.</span></span></div></div>`),
+  "admin-promos": () => page("Промокоды и раздачи", "Создавай DC-промокоды и управляй существующими.", `<div class="stat-row"><div class="stat"><b>${state.adminOverview?.players ?? "—"}</b><small>Игроков</small></div><div class="stat"><b>${state.adminOverview?.pending_gifts ?? "—"}</b><small>Подарков в очереди</small></div><div class="stat"><b>${state.adminOverview?.premium_orders ?? "—"}</b><small>Premium-заявок</small></div></div><div class="modal"><h2>Создать DC-промокод</h2><div class="section"><input class="input" id="promo-new-code" maxlength="32" placeholder="Код, например WELCOME" /></div><div class="section"><input class="input" id="promo-new-reward" type="number" min="1" step="1" placeholder="Награда в DC" /></div><div class="section"><input class="input" id="promo-new-limit" type="number" min="1" step="1" placeholder="Лимит активаций (необязательно)" /></div><button class="button primary wide" data-action="admin-create-promo">Создать и опубликовать</button></div><div class="section list">${(state.adminOverview?.promos || []).map(p => `<div class="list-row">${icon("⌁")}<span class="row-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(String(p.reward))} · ${escapeHtml(p.type)} · ${p.uses}/${p.max_uses == null ? "∞" : p.max_uses}</span></span><button class="button danger" data-action="admin-delete-promo" data-promo-code="${p.code}">Удалить</button></div>`).join("") || '<div class="notice"><b>⌁</b><span>Промокодов пока нет.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить сводку</button></div>`),
+  "admin-settings": () => page("Заявки и подарки", "Обработка очереди подарков и Premium-заявок.", `<div class="section-title"><h2>Подарки в очереди</h2></div><div class="list">${(state.adminOverview?.pending_gift_items || []).map(item => `<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${escapeHtml(item.gift_id)} · ${escapeHtml(item.reason || "")}</span></span><button class="button primary" data-action="admin-do" data-admin-action="deliver_pending_gift" data-item-id="${item.id}">Выдать</button><button class="button secondary" data-action="admin-do" data-admin-action="delete_pending_gift" data-item-id="${item.id}">Удалить</button></div>`).join("") || '<div class="notice"><b>✓</b><span>Нет подарков в очереди.</span></div>'}</div><div class="section-title"><h2>Premium-заявки</h2></div><div class="list">${(state.adminOverview?.premium_order_items || []).map(item => `<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${format(item.cost)} DC</span></span><button class="button primary" data-action="admin-do" data-admin-action="premium_done" data-item-id="${item.id}">Выдан</button><button class="button secondary" data-action="admin-do" data-admin-action="premium_refund" data-item-id="${item.id}">Возврат</button></div>`).join("") || '<div class="notice"><b>✓</b><span>Нет Premium-заявок.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить заявки</button></div>`),
 };
 
 function page(title, lead, content) { return `<div class="page-head"><div class="eyebrow">D-COINS</div><h1>${title}</h1><p class="lead">${lead}</p></div>${content}`; }
@@ -72,19 +86,34 @@ function boosters() {
 }
 function helpText(name) { return ({"Игры":"Ставка списывается с реального баланса.","Кейсы":"Открывай кейсы и получай награды.","Бустеры":"Выбери один бустер перед игрой.","Джекпот дня":"Билеты выдаются за проигрыши в играх.","Промокоды":"Активируй код в разделе профиля."})[name]; }
 function format(value) { return new Intl.NumberFormat("ru-RU").format(value); }
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"})[char]); }
 
 function render() {
   const view = state.view;
+  if (view === "mines-active") return renderMines();
+  if (view === "crash-active") return renderCrash();
   if (view.startsWith("play:")) return renderGame(view.split(":")[1]);
   if (view.startsWith("case:")) return renderCase(view.split(":")[1]);
   if (view === "pandora") return renderPandora();
   document.querySelector("#screen").innerHTML = views[view] ? views[view]() : views.home();
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   if (view === "top" && !state.top.length) loadTop();
+  if (["jackpot", "jackpot-top", "jackpot-winners"].includes(view) && state.jackpotTop === null) loadJackpot();
+  if (["admin-promos", "admin-settings"].includes(view) && state.isAdmin && !state.adminOverview) loadAdminOverview();
+  if (view === "mini-events" && !state.miniEventLoaded) loadMiniEvent();
+  if (view === "duels" && !state.duelsLoaded) loadDuels();
 }
 function renderGame(game) {
   const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
-  const options={slots:[["spin","Крутить барабаны"]],roulette:[["red","🔴 Красное"],["black","⚫ Чёрное"],["green","🟢 Зелёное · ×3"]],dice:[["1","1"],["2","2"],["3","3"],["4","4"],["5","5"],["6","6"]],coinflip:[["heads","🦅 Орёл"],["tails","🔵 Решка"]]}[game];
+  if (game === "crash") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Выбери режим, ставку и решай, когда забрать выигрыш.", `<div class="modal"><h2>Crash</h2><div class="grid two"><button class="button secondary" data-action="crash-mode" data-mode="normal">🚀 Обычный полёт</button><button class="button secondary" data-action="crash-mode" data-mode="turbo">⚡ Турбо</button></div><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="crash-start">Начать Crash</button>${btn("К играм", "games")}</div></div>`);
+    return;
+  }
+  if (game === "mines") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
+    return;
+  }
+  const options={slots:[["spin","Крутить барабаны"]],roulette:[["red","🔴 Красное"],["black","⚫ Чёрное"],["green","🟢 Зелёное · ×3"]],dice:[["1","1"],["2","2"],["3","3"],["4","4"],["5","5"],["6","6"]],coinflip:[["heads","🦅 Орёл"],["tails","🔵 Решка"]],scratch:[["reveal","Открыть скретч-карту"]],lottery:Array.from({length:25},(_,i)=>[String(i),`Билет ${i+1}`])}[game];
   if (!options) { document.querySelector("#screen").innerHTML = page(names[game], "Этот режим переносится следующим — остальные игры уже доступны в боте.", `${btn("К играм", "games")}`); return; }
   document.querySelector("#screen").innerHTML = page(names[game], "Минимальная ставка — 5 DC.", `<div class="modal"><h2>${names[game]}</h2><p>${state.booster ? `Активный бустер: ${state.booster}.` : "Бустер не выбран."}</p><div class="section"><select id="game-option" class="input">${options.map(([value,label])=>`<option value="${value}">${label}</option>`).join("")}</select></div><div class="section"><input id="game-bet" class="input" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="play-game" data-game="${game}">Начать игру</button>${btn("К играм", "games")}</div></div>`);
 }
@@ -94,18 +123,36 @@ function renderPandora() { document.querySelector("#screen").innerHTML = page("�
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-view], [data-action]");
   if (!target) return;
-  if (target.dataset.view === "toggle-privacy") {
-    setPrivacy(!state.hiddenBalance);
-    return;
-  }
-  if (["case-open", "pandora-open", "promo-activate", "support-send"].includes(target.dataset.view)) {
-    alert("Действие будет выполняться через защищённый API бота после подключения Mini App.");
-    return;
-  }
+  if (target.dataset.view === "toggle-privacy") { setPrivacy(!state.hiddenBalance); return; }
+  if (target.dataset.view === "case-open") { openCase(); return; }
+  if (target.dataset.view === "pandora-open") { openPandora(); return; }
+  if (target.dataset.view === "promo-activate") { redeemPromo(); return; }
+
+  if (target.dataset.action === "transfer-send") { transferCoins(); return; }
+  if (target.dataset.action === "support-send") { sendSupportMessage(); return; }
+  if (target.dataset.action === "support-close") { closeSupportChat(); return; }
+  if (target.dataset.action === "mini-event-join") { joinMiniEvent(Number(target.dataset.eventId)); return; }
+  if (target.dataset.action === "mini-event-refresh") { state.miniEventLoaded = false; loadMiniEvent(); return; }
+  if (target.dataset.action === "duel-create") { createDuel(); return; }
+  if (target.dataset.action === "duel-refresh") { state.duelsLoaded = false; loadDuels(); return; }
+  if (target.dataset.action === "duel-cancel") { cancelDuel(target.dataset.duelId); return; }
+  if (target.dataset.action === "duel-accept") { acceptDuel(target.dataset.duelId); return; }
+  if (target.dataset.action === "daily-bonus") { claimDailyBonus(); return; }
+  if (target.dataset.action === "mines-start") { startMines(); return; }
+  if (target.dataset.action === "crash-mode") { state.crashMode = target.dataset.mode; document.querySelectorAll("[data-action='crash-mode']").forEach(node => node.classList.toggle("primary", node.dataset.mode === state.crashMode)); return; }
+  if (target.dataset.action === "crash-start") { startCrash(); return; }
+  if (target.dataset.action === "crash-forward") { crashAction("forward"); return; }
+  if (target.dataset.action === "crash-cashout") { crashAction("cashout"); return; }
+  if (target.dataset.action === "mines-cell") { minesAction("cell", Number(target.dataset.cell)); return; }
+  if (target.dataset.action === "mines-cashout") { minesAction("cashout"); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
-  if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
-  alert("Действие будет выполняться через защищённый API бота после подключения Mini App.");
+  if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
+  if (target.dataset.action === "admin-refresh") { loadAdminOverview(); return; }
+  if (target.dataset.action === "admin-create-promo") { runAdminAction("create_promo"); return; }
+  if (target.dataset.action === "admin-delete-promo") { runAdminAction("delete_promo", undefined, target.dataset.promoCode); return; }
+  if (target.dataset.action === "admin-do") { runAdminAction(target.dataset.adminAction, target.dataset.itemId); return; }
+  if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
 });
 
 async function api(path, options = {}) {
@@ -116,13 +163,291 @@ async function api(path, options = {}) {
 async function syncProfile() {
   if (!state.initData) return;
   const data = await api("/api/me");
-  state.displayName = data.user.name;
+  state.displayName = escapeHtml(data.user.name);
   state.balance = data.balance.shown;
   state.hiddenBalance = data.balance.hidden;
   state.isAdmin = Boolean(data.is_admin);
-  state.boosters = data.boosters;
-  state.booster = data.active_booster ? (data.boosters.find((x) => x.id === data.active_booster)?.title || data.active_booster) : null;
+  state.boosters = data.boosters || [];
+  state.caseKeys = data.case_keys || {};
+  state.pandoraRemaining = Number(data.pandora_remaining || 0);
+  state.jackpot = data.jackpot || null;
+  state.supportAccess = Boolean(data.support_access);
+  state.booster = data.active_booster ? (state.boosters.find((x) => x.id === data.active_booster)?.title || data.active_booster) : null;
 }
+function showNotice(title, message, actions = `${btn("На главную", "home", "primary")}`) {
+  document.querySelector("#screen").innerHTML = page(title, message, `<div class="modal"><div class="modal-actions">${actions}</div></div>`);
+}
+function describePrize(prize) {
+  if (!prize) return "Награда не указана.";
+  const amount = Number(prize.amount || 0);
+  if (prize.kind === "coins") return `Награда: ${format(amount)} DC.`;
+  if (prize.kind === "booster") return `Бустер: ${prize.booster || amount}.`;
+  if (prize.kind === "key") return `Ключ от кейса: ${prize.case || amount}.`;
+  if (prize.kind === "chance") return `Шанс обновлён: ${prize.chance ?? amount}.`;
+  if (prize.kind === "gift") return prize.delivery === "pending" ? "Подарок сохранён в очереди на выдачу." : "Подарок отправлен или поставлен в очередь на выдачу.";
+  if (prize.kind === "premium") return `Создана заявка на Premium №${prize.order_id}.`;
+  return `Награда: ${amount}.`;
+}
+async function openCase() {
+  const id = state.view.startsWith("case:") ? state.view.split(":")[1] : "";
+  try {
+    const data = await api("/api/case/open", { method: "POST", body: JSON.stringify({ case_id: id }) });
+    state.balance = data.balance;
+    await syncProfile();
+    showNotice("Кейс открыт!", `${({blood:"BLOOD",pantera:"PANTERA",spider_man:"SPIDER MAN"})[id] || id}: ${describePrize(data.prize)} Баланс: ${format(data.balance)} DC.`, `${btn("Открыть ещё", `case:${id}`, "primary")}${btn("Все кейсы", "cases")}`);
+  } catch (error) { alert(error.message || "Не удалось открыть кейс."); }
+}
+async function openPandora() {
+  try {
+    const data = await api("/api/pandora/open", { method: "POST" });
+    state.balance = data.balance;
+    state.pandoraRemaining = Number(data.remaining || 0);
+    await syncProfile();
+    showNotice("Ящик Пандоры открыт!", `${describePrize(data.prize)} Баланс: ${format(data.balance)} DC.`, btn("К кейсам", "cases", "primary"));
+  } catch (error) { alert(error.message || "Не удалось открыть ящик Пандоры."); }
+}
+async function redeemPromo() {
+  const input = document.querySelector("#screen input");
+  const code = input?.value?.trim();
+  if (!code) { alert("Введи промокод."); return; }
+  try {
+    const data = await api("/api/promo/redeem", { method: "POST", body: JSON.stringify({ code }) });
+    state.balance = data.balance;
+    await syncProfile();
+    const reward = data.reward_type === "coins" ? `${format(Number(data.reward || 0))} DC` : data.reward_type === "case" ? `${data.case_count} кейс(а): ${data.case_id}` : String(data.reward || data.reward_type);
+    showNotice("Промокод активирован", `Код ${data.code} принят. Награда: ${reward}. Баланс: ${format(data.balance)} DC.`, btn("В профиль", "profile", "primary"));
+  } catch (error) { alert(error.message || "Не удалось активировать промокод."); }
+}
+
+function renderCrash() {
+  const game = state.crashGame;
+  if (!game) { state.view = "play:crash"; render(); return; }
+  const multiplier = Number(game.multiplier || 1).toFixed(2);
+  const summary = game.finished
+    ? `<div class="notice"><b>${game.won ? "✓" : "×"}</b><span>${game.won ? `Выигрыш: ${format(game.prize || 0)} DC` : "Взрыв! Ставка проиграна."} Баланс: ${format(game.balance)} DC.</span></div>`
+    : `<div class="notice"><b>🚀</b><span>Высота: ${game.height} м · коэффициент ×${multiplier} · можно забрать ${format(game.current_prize)} DC.</span></div>`;
+  document.querySelector("#screen").innerHTML = page("Crash", `Режим: ${game.mode === "turbo" ? "Турбо" : "Обычный"} · ставка ${format(game.bet)} DC`, `<div class="balance-card"><div class="balance-label">Текущий коэффициент</div><div class="balance-number">×${multiplier}</div><p class="lead">Чем дальше летит ракета, тем выше потенциальный выигрыш.</p></div><div class="section">${summary}</div><div class="modal-actions">${game.finished ? `<button class="button primary" data-view="play:crash">Играть ещё</button>${btn("Все игры", "games")}` : `<button class="button primary" data-action="crash-forward">🚀 Вперёд</button><button class="button secondary" data-action="crash-cashout">Забрать ${format(game.current_prize)} DC</button>`}</div>`);
+}
+async function startCrash() {
+  const bet = Number(document.querySelector("#game-bet")?.value);
+  const mode = state.crashMode || "normal";
+  if (!Number.isSafeInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
+  try {
+    state.crashGame = await api("/api/crash/start", { method: "POST", body: JSON.stringify({ bet, mode }) });
+    await syncProfile().catch(() => {});
+    state.balance = state.crashGame.balance;
+    state.view = "crash-active";
+    render();
+  } catch (error) { alert(error.message || "Не удалось начать Crash."); }
+}
+async function crashAction(action) {
+  if (!state.crashGame) return;
+  try {
+    const data = await api("/api/crash/action", { method: "POST", body: JSON.stringify({ token: state.crashGame.token, action }) });
+    state.crashGame = data;
+    state.balance = data.balance;
+    if (data.finished) await syncProfile().catch(() => {});
+    if (data.continued_by_booster) alert("Бустер «Повтор» спас игру. Продолжай!");
+    render();
+  } catch (error) { alert(error.message || "Не удалось выполнить действие Crash."); }
+}
+
+function renderMines() {
+  const game = state.minesGame;
+  if (!game) { state.view = "play:mines"; render(); return; }
+  const cells = (game.cells || []).map((cell, index) => {
+    const label = cell === "mine" ? "💣" : cell === "safe" ? "✓" : cell === "opened" ? "✓" : "❔";
+    const disabled = game.finished || cell !== "hidden";
+    const cellClass = cell === "hidden" ? "covered" : cell;
+    return `<button class="mine-cell ${cellClass}" type="button" data-action="mines-cell" data-cell="${index}" ${disabled ? "disabled" : ""} aria-label="Клетка ${index + 1}">${label}</button>`;
+  }).join("");
+  const result = game.finished
+    ? `<div class="notice"><b>${game.won ? "✓" : "×"}</b><span>${game.won ? `Выигрыш: ${format(game.prize || 0)} DC` : `Ставка проиграна${game.refund ? `. Возврат: ${format(game.refund)} DC` : ""}`}. Баланс: ${format(game.balance)} DC.</span></div>`
+    : `<div class="notice"><b>💰</b><span>Открыто безопасных клеток: ${game.safe_opened}. Потенциальный выигрыш: ${format(game.current_prize)} DC.</span></div>`;
+  document.querySelector("#screen").innerHTML = page("Мины", `Ставка: ${format(game.bet)} DC`, `<div class="mines-grid">${cells}</div><div class="section">${result}</div><div class="modal-actions">${game.finished ? `<button class="button primary" data-view="play:mines">Играть ещё</button>${btn("Все игры", "games")}` : `<button class="button primary" data-action="mines-cashout" ${game.safe_opened < 1 ? "disabled" : ""}>Забрать ${format(game.current_prize)} DC</button>`}</div>`);
+}
+async function startMines() {
+  const bet = Number(document.querySelector("#game-bet")?.value);
+  if (!Number.isSafeInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
+  try {
+    state.minesGame = await api("/api/mines/start", { method: "POST", body: JSON.stringify({ bet }) });
+    await syncProfile().catch(() => {});
+    state.balance = state.minesGame.balance;
+    state.view = "mines-active";
+    render();
+  } catch (error) { alert(error.message || "Не удалось начать игру."); }
+}
+async function minesAction(action, cell) {
+  if (!state.minesGame) return;
+  try {
+    const data = await api("/api/mines/action", { method: "POST", body: JSON.stringify({ token: state.minesGame.token, action, ...(cell === undefined ? {} : { cell }) }) });
+    state.minesGame = data;
+    state.balance = data.balance;
+    if (data.finished) await syncProfile();
+    render();
+  } catch (error) { alert(error.message || "Не удалось выполнить ход."); }
+}
+
+async function loadDuels() {
+  try {
+    const data = await api("/api/duels");
+    state.duels = data.duels || [];
+    state.duelsLoaded = true;
+    if (state.view === "duels") render();
+  } catch (error) {
+    state.duelsLoaded = true;
+    if (state.view === "duels") render();
+    alert(error.message || "Не удалось загрузить дуэли.");
+  }
+}
+async function createDuel() {
+  const bet = Number(document.querySelector("#duel-bet")?.value);
+  if (!Number.isSafeInteger(bet) || bet < 5 || bet > 100000) { alert("Ставка должна быть от 5 до 100 000 DC."); return; }
+  try {
+    await api("/api/duels/create", { method: "POST", body: JSON.stringify({ bet }) });
+    state.duelsLoaded = false;
+    await loadDuels();
+    alert("Дуэль создана. Другие игроки могут принять её в Mini App.");
+  } catch (error) { alert(error.message || "Не удалось создать дуэль."); }
+}
+async function acceptDuel(duelId) {
+  try {
+    const data = await api("/api/duels/accept", { method: "POST", body: JSON.stringify({ duel_id: duelId }) });
+    state.balance = data.balance;
+    state.duelsLoaded = false;
+    await syncProfile().catch(() => {});
+    showNotice("Дуэль завершена", data.result || `Победитель: ${data.winner_name}. Выигрыш: ${format(data.prize)} DC.`, btn("К дуэлям", "duels", "primary"));
+  } catch (error) { alert(error.message || "Не удалось принять дуэль."); }
+}
+async function cancelDuel(duelId) {
+  try {
+    await api("/api/duels/cancel", { method: "POST", body: JSON.stringify({ duel_id: duelId }) });
+    state.duelsLoaded = false;
+    await loadDuels();
+  } catch (error) { alert(error.message || "Не удалось отменить дуэль."); }
+}
+
+async function loadMiniEvent() {
+  try {
+    const data = await api("/api/mini-events");
+    state.miniEvent = data.event || null;
+    state.miniEventLoaded = true;
+    if (state.view === "mini-events") render();
+  } catch (error) {
+    state.miniEventLoaded = true;
+    if (state.view === "mini-events") render();
+    alert(error.message || "Не удалось загрузить мини-ивенты.");
+  }
+}
+async function joinMiniEvent(eventId) {
+  if (!Number.isSafeInteger(eventId) || eventId <= 0) { alert("Некорректный ивент."); return; }
+  try {
+    const data = await api("/api/mini-events/join", { method: "POST", body: JSON.stringify({ event_id: eventId }) });
+    state.balance = data.balance;
+    if (state.miniEvent && data.count !== undefined) {
+      state.miniEvent.participants = data.count;
+      state.miniEvent.joined = true;
+    }
+    if (data.complete) {
+      state.miniEvent = null;
+      state.miniEventLoaded = true;
+      showNotice("Мини-ивент завершён", `Награда: +${format(data.reward || 0)} DC. Все награды уже забраны. Баланс: ${format(state.balance)} DC.`, btn("К мини-ивентам", "mini-events", "primary"));
+      return;
+    }
+    if (data.kind === "ticket") {
+      state.miniEvent.joined = true;
+      render();
+      alert("Ты участвуешь в розыгрыше счастливого билета.");
+      return;
+    }
+    await syncProfile().catch(() => {});
+    showNotice("Награда получена", `Начислено ${format(data.reward)} DC. Баланс: ${format(state.balance)} DC.`, btn("К мини-ивентам", "mini-events", "primary"));
+  } catch (error) { alert(error.message || "Не удалось присоединиться к ивенту."); }
+}
+
+async function sendSupportMessage() {
+  const field = document.querySelector("#support-message");
+  const message = field?.value?.trim();
+  if (!message) { alert("Напиши сообщение."); return; }
+  if (message.length > 2000) { alert("Сообщение слишком длинное."); return; }
+  try {
+    await api("/api/support/send", { method: "POST", body: JSON.stringify({ message }) });
+    field.value = "";
+    showNotice("Сообщение отправлено", "Администратор получил твоё сообщение. Ответ придёт в Telegram.", btn("Назад", "support", "primary"));
+  } catch (error) { alert(error.message || "Не удалось отправить сообщение."); }
+}
+async function closeSupportChat() {
+  try {
+    await api("/api/support/close", { method: "POST", body: JSON.stringify({}) });
+    showNotice("Диалог закрыт", "Диалог с администратором закрыт.", btn("В профиль", "profile", "primary"));
+  } catch (error) { alert(error.message || "Не удалось закрыть диалог."); }
+}
+
+async function purchaseStars(amount) {
+  if (!Number.isSafeInteger(amount) || amount <= 0) { alert("Некорректный пакет."); return; }
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp?.openInvoice) {
+    alert("Покупка Stars доступна только внутри Telegram Mini App.");
+    return;
+  }
+  try {
+    const data = await api("/api/purchase/invoice", { method: "POST", body: JSON.stringify({ amount }) });
+    webApp.openInvoice(data.invoice_link, async (status) => {
+      if (status === "paid") {
+        try {
+          await syncProfile();
+          state.view = "profile";
+          render();
+          showNotice("Оплата принята", `Покупка на ${format(data.amount)} DC за ${data.stars} ⭐ подтверждена Telegram. Если баланс обновился не сразу, подожди несколько секунд и открой профиль снова.`, btn("В профиль", "profile", "primary"));
+        } catch {
+          alert("Оплата прошла. Открой профиль через несколько секунд, чтобы обновить баланс.");
+        }
+      } else if (status === "failed") {
+        alert("Telegram не смог завершить оплату. Попробуй ещё раз.");
+      }
+    });
+  } catch (error) {
+    alert(error.message || "Не удалось создать счёт на оплату.");
+  }
+}
+
+async function claimDailyBonus() {
+  try {
+    const data = await api("/api/bonus", { method: "POST", body: JSON.stringify({}) });
+    state.balance = data.balance;
+    await syncProfile();
+    const details = [];
+    if (data.coins_awarded) details.push(`+${format(data.coins_awarded)} DC`);
+    if (data.chance_awarded) details.push(`+${Number(data.chance_awarded).toFixed(3)} к шансу`);
+    if (!details.length) {
+      const waits = [];
+      if (data.coin_remaining) waits.push(`монеты: ${formatDuration(data.coin_remaining)}`);
+      if (data.chance_remaining) waits.push(`шанс: ${formatDuration(data.chance_remaining)}`);
+      showNotice("Бонус пока недоступен", waits.length ? `Следующий бонус: ${waits.join("; ")}.` : "Бонусы уже получены.", btn("В профиль", "profile", "primary"));
+      return;
+    }
+    showNotice("Бонус получен!", `${details.join(" · ")}. Твой баланс: ${format(data.balance)} DC.`, btn("В профиль", "profile", "primary"));
+  } catch (error) { alert(error.message || "Не удалось получить бонус."); }
+}
+function formatDuration(seconds) {
+  const h = Math.floor(Number(seconds || 0) / 3600);
+  const m = Math.floor((Number(seconds || 0) % 3600) / 60);
+  return h ? `${h} ч. ${m} мин.` : `${m} мин.`;
+}
+
+async function transferCoins() {
+  const recipient = document.querySelector("#transfer-recipient")?.value?.trim();
+  const amount = Number(document.querySelector("#transfer-amount")?.value);
+  if (!recipient) { alert("Укажи @username или Telegram ID получателя."); return; }
+  if (!Number.isSafeInteger(amount) || amount <= 0) { alert("Сумма должна быть положительным целым числом."); return; }
+  try {
+    const data = await api("/api/transfer", { method: "POST", body: JSON.stringify({ recipient, amount }) });
+    state.balance = data.balance;
+    await syncProfile();
+    showNotice("Перевод выполнен", `Отправлено ${format(data.amount)} DC пользователю ${escapeHtml(data.recipient)}. Новый баланс: ${format(data.balance)} DC.`, btn("В профиль", "profile", "primary"));
+  } catch (error) { alert(error.message || "Не удалось выполнить перевод."); }
+}
+
 async function selectBooster(boosterId, title) {
   try {
     if (state.initData) await api("/api/booster/select", { method: "POST", body: JSON.stringify({ booster_id: boosterId }) });
@@ -144,10 +469,62 @@ async function playGame(game) {
   if (!Number.isInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
   try {
     const data = await api("/api/game/play", { method: "POST", body: JSON.stringify({ game, bet, option }) });
+    await syncProfile().catch(() => {});
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
   } catch (error) { alert(error.message || "Не удалось завершить игру."); }
 }
+async function loadJackpot() {
+  try {
+    const data = await api("/api/jackpot");
+    state.jackpot = data.summary || state.jackpot;
+    state.jackpotTop = data.top || [];
+    state.jackpotWinners = data.winners || [];
+    if (["jackpot", "jackpot-top", "jackpot-winners"].includes(state.view)) render();
+  } catch (error) { alert(error.message || "Не удалось загрузить данные джекпота."); }
+}
+async function loadAdminOverview() {
+  try {
+    state.adminOverview = await api("/api/admin/overview");
+    if (["admin-promos", "admin-settings"].includes(state.view)) render();
+  } catch (error) { alert(error.message || "Не удалось загрузить админ-сводку."); }
+}
+async function runAdminAction(action, itemId, promoCode) {
+  if (!state.isAdmin) { alert("Нет доступа."); return; }
+  const userId = Number(document.querySelector("#admin-user-id")?.value);
+  const amount = Number(document.querySelector("#admin-amount")?.value);
+  const payload = { action };
+  if (itemId !== undefined) payload.item_id = Number(itemId);
+  if (action === "create_promo") {
+    const code = document.querySelector("#promo-new-code")?.value?.trim().toUpperCase();
+    const reward = Number(document.querySelector("#promo-new-reward")?.value);
+    const limitText = document.querySelector("#promo-new-limit")?.value?.trim();
+    const limit = limitText ? Number(limitText) : null;
+    if (!code || !/^[A-Z0-9_-]{3,32}$/.test(code)) { alert("Код: 3–32 символа, латинские буквы, цифры, _ или -."); return; }
+    if (!Number.isSafeInteger(reward) || reward <= 0) { alert("Награда должна быть положительным целым числом."); return; }
+    if (limit !== null && (!Number.isSafeInteger(limit) || limit <= 0)) { alert("Лимит должен быть положительным целым числом."); return; }
+    payload.code = code; payload.reward = reward; payload.max_uses = limit;
+  }
+  if (action === "delete_promo") {
+    if (!promoCode) { alert("Промокод не указан."); return; }
+    payload.code = promoCode;
+  }
+  if (["add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip"].includes(action)) {
+    if (!Number.isInteger(userId) || userId <= 0) { alert("Укажи корректный Telegram ID."); return; }
+    payload.user_id = userId;
+  }
+  if (["add_coins", "remove_coins"].includes(action)) {
+    if (!Number.isInteger(amount) || amount <= 0) { alert("Укажи положительную сумму DC."); return; }
+    payload.amount = amount;
+  }
+  try {
+    const result = await api("/api/admin/action", { method: "POST", body: JSON.stringify(payload) });
+    if (action === "create_promo" && result.published === false) alert("Промокод создан, но не опубликован в канале. Проверь права бота.");
+    else alert("Действие выполнено.");
+    if (["admin-promos", "admin-settings"].includes(state.view)) await loadAdminOverview();
+  } catch (error) { alert(error.message || "Админ-действие не выполнено."); }
+}
+
 async function loadTop() {
   try {
     if (!state.initData) return;

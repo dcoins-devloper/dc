@@ -9253,6 +9253,556 @@ async def miniapp_top(request: web.Request) -> web.Response:
     )
 
 
+def miniapp_crash_payload(game: dict, finished: bool = False) -> dict:
+    step = int(game["step"])
+    multiplier = float(game["multipliers"][min(step, len(game["multipliers"]) - 1)])
+    return {
+        "token": game["token"],
+        "mode": game["mode"],
+        "bet": game["bet"],
+        "step": step,
+        "height": step * 100,
+        "multiplier": multiplier,
+        "current_prize": int(game["bet"] * multiplier),
+        "booster": game.get("booster"),
+        "finished": finished,
+    }
+
+
+async def miniapp_crash_start(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    uid = user["id"]
+    if await db.is_banned(uid):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        mode = str(payload["mode"])
+        bet = int(payload["bet"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid Crash request")
+    if mode not in CRASH_MULTIPLIERS or not CASINO_MIN_BET <= bet <= MAX_BET:
+        raise web.HTTPBadRequest(text="Invalid Crash mode or bet")
+    if uid in active_games:
+        raise web.HTTPConflict(text="Finish your active game first")
+    booster = await db.get_active_booster(uid)
+    if booster == "double" and bet > 50000:
+        raise web.HTTPBadRequest(text="With x2 booster, maximum bet is 50 000 DC")
+    balance, _ = await db.get_coins(uid)
+    if booster != "free" and (balance < bet or not await db.remove_coins(uid, bet)):
+        raise web.HTTPBadRequest(text=f"Insufficient DC. Real balance: {balance}")
+    multipliers = CRASH_MULTIPLIERS[mode]
+    game = {
+        "game": "crash",
+        "mode": mode,
+        "bet": bet,
+        "step": 0,
+        "crash_at": crash_point(mode, len(multipliers)),
+        "multipliers": multipliers,
+        "token": secrets.token_hex(12),
+        "status": "active",
+        "chat_id": uid,
+        "message_id": None,
+        "expires": time.time() + CASINO_TIMEOUT,
+        "booster": booster,
+    }
+    await db.clear_active_booster(uid)
+    active_games[uid] = game
+    return web.json_response({**miniapp_crash_payload(game), "balance": await db.get_display_balance(uid)})
+
+
+async def miniapp_crash_action(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    uid = user["id"]
+    if await db.is_banned(uid):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        token = str(payload["token"])
+        action = str(payload["action"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid Crash action")
+    game = active_games.get(uid)
+    if not game or game.get("game") != "crash" or game.get("token") != token or game["expires"] <= time.time():
+        raise web.HTTPConflict(text="This Crash game has ended or expired")
+    if action == "forward":
+        next_step = game["step"] + 1
+        if next_step >= len(game["multipliers"]) or next_step == game["crash_at"]:
+            if booster_can_repeat(game.get("booster"), "crash"):
+                game["booster"] = None
+                game["crash_at"] = len(game["multipliers"]) + 1
+                game["step"] = min(next_step, len(game["multipliers"]) - 1)
+                return web.json_response({**miniapp_crash_payload(game), "continued_by_booster": True, "balance": await db.get_display_balance(uid)})
+            active_games.pop(uid, None)
+            if game.get("booster") == "insurance":
+                await db.add_coins(uid, game["bet"] // 4)
+            await school_event.record(uid, user["name"], f"crash:{token}:loss", {"games": 1, "gamewin": 0, "bets": game["bet"]})
+            return web.json_response({**miniapp_crash_payload(game, True), "won": False, "prize": 0, "balance": await db.get_display_balance(uid)})
+        game["step"] = next_step
+        return web.json_response({**miniapp_crash_payload(game), "won": None, "balance": await db.get_display_balance(uid)})
+    if action == "cashout":
+        active_games.pop(uid, None)
+        multiplier = game["multipliers"][game["step"]]
+        prize = golden_payout(int(game["bet"] * multiplier))
+        if game.get("booster") == "double":
+            prize *= 2
+        elif game.get("booster") == "bonus25":
+            prize = int(prize * 1.25)
+        await db.add_coins(uid, prize)
+        await school_event.record(uid, user["name"], f"crash:{token}:win", {"games": 1, "gamewin": 1, "bets": game["bet"]})
+        return web.json_response({**miniapp_crash_payload(game, True), "won": True, "prize": prize, "balance": await db.get_display_balance(uid)})
+    raise web.HTTPBadRequest(text="Unknown Crash action")
+
+
+def miniapp_mines_payload(game: dict, reveal: bool = False) -> dict:
+    opened = game["opened"]
+    mines = game["mines"]
+    return {
+        "token": game["token"],
+        "bet": game["bet"],
+        "opened": sorted(opened),
+        "cells": [
+            ("mine" if index in mines else "safe") if reveal and index in mines | opened
+            else ("opened" if index in opened else "hidden")
+            for index in range(MINES_GRID_SIZE)
+        ],
+        "safe_opened": len(opened),
+        "multiplier": mines_multiplier(len(opened)),
+        "current_prize": golden_payout(mines_prize(game["bet"], len(opened))) if opened else 0,
+        "finished": reveal,
+    }
+
+
+async def miniapp_mines_start(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    user_id = user["id"]
+    if await db.is_banned(user_id):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        bet = int((await request.json())["bet"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a whole-number bet")
+    if not CASINO_MIN_BET <= bet <= MAX_BET:
+        raise web.HTTPBadRequest(text=f"Bet must be between {CASINO_MIN_BET} and {MAX_BET}")
+    if user_id in active_games:
+        raise web.HTTPConflict(text="Finish your active game first")
+    if user_id in casino_bet_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {CASINO_BET_COOLDOWN} seconds before the next bet")
+    balance, _ = await db.get_coins(user_id)
+    booster, error = await selected_booster_for_bet(user_id, bet, balance)
+    if error:
+        raise web.HTTPBadRequest(text=error)
+    casino_bet_cooldowns[user_id] = True
+    game = {
+        "game": "mines",
+        "token": secrets.token_hex(12),
+        "bet": bet,
+        "mines": set(random.sample(range(MINES_GRID_SIZE), MINES_COUNT)),
+        "opened": set(),
+        "chat_id": user_id,
+        "expires": time.time() + CASINO_TIMEOUT,
+        "booster": booster,
+    }
+    active_games[user_id] = game
+    return web.json_response({**miniapp_mines_payload(game), "balance": await db.get_display_balance(user_id)})
+
+
+async def miniapp_mines_action(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    user_id = user["id"]
+    if await db.is_banned(user_id):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        token = str(payload["token"])
+        action = str(payload["action"])
+        cell = int(payload["cell"]) if "cell" in payload else None
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid mines action")
+    game = active_games.get(user_id)
+    if not game or game.get("game") != "mines" or game.get("token") != token or game["expires"] <= time.time():
+        raise web.HTTPConflict(text="This mines game has ended or expired")
+    if action == "cashout":
+        safe_opened = len(game["opened"])
+        if not safe_opened:
+            raise web.HTTPBadRequest(text="Open at least one safe cell before cashing out")
+        prize = booster_win_amount(golden_payout(mines_prize(game["bet"], safe_opened)), game.get("booster"))
+        active_games.pop(user_id, None)
+        await db.add_coins(user_id, prize)
+        await school_event.record(user_id, user["name"], f"mines:{token}:cashout", {"games": 1, "gamewin": 1, "bets": game["bet"]})
+        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
+    if action != "cell" or cell is None or not 0 <= cell < MINES_GRID_SIZE:
+        raise web.HTTPBadRequest(text="Invalid cell")
+    if cell in game["opened"]:
+        raise web.HTTPBadRequest(text="Cell is already open")
+    if cell in game["mines"]:
+        if booster_can_repeat(game.get("booster"), "mines"):
+            game["mines"].discard(cell)
+            game["booster"] = None
+            game["opened"].add(cell)
+        else:
+            active_games.pop(user_id, None)
+            refund = await booster_loss_refund(user_id, game["bet"], game.get("booster"))
+            await db.record_jackpot_loss(user_id, user["name"], game["bet"], f"mini:mines:{token}")
+            await school_event.record(user_id, user["name"], f"mines:{token}:loss", {"games": 1, "gamewin": 0, "bets": game["bet"]})
+            return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": False, "prize": 0, "refund": refund, "balance": await db.get_display_balance(user_id)})
+    else:
+        game["opened"].add(cell)
+        await school_event.record(user_id, user["name"], f"safe:mini:{token}:{cell}", {"safe": 1})
+    if len(game["opened"]) >= MINES_GRID_SIZE - MINES_COUNT:
+        prize = booster_win_amount(golden_payout(mines_prize(game["bet"], len(game["opened"]))), game.get("booster"))
+        active_games.pop(user_id, None)
+        await db.add_coins(user_id, prize)
+        await school_event.record(user_id, user["name"], f"mines:{token}:clear", {"games": 1, "gamewin": 1, "bets": game["bet"]})
+        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
+    return web.json_response({**miniapp_mines_payload(game), "won": None, "balance": await db.get_display_balance(user_id)})
+
+
+async def miniapp_create_invoice(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    if await db.is_banned(user["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        data = await request.json()
+        dc_amount = int(data["amount"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid DC package")
+    stars = STAR_DC_PACKAGES.get(dc_amount)
+    if stars is None:
+        raise web.HTTPBadRequest(text="Unknown DC package")
+    payload = await create_invoice_order(db.path, user["id"], dc_amount, stars)
+    bot: Bot = request.app["bot"]
+    link = await bot.create_invoice_link(
+        title=f"{dc_amount:,} D-COINS".replace(",", " "),
+        description=f"{dc_amount:,} DC за {stars} Stars".replace(",", " "),
+        payload=payload,
+        currency="XTR",
+        prices=[LabeledPrice(label="D-COINS", amount=stars)],
+    )
+    return web.json_response({"invoice_link": link, "amount": dc_amount, "stars": stars})
+
+
+async def miniapp_duels(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    now = time.time()
+    items = []
+    for duel_id, duel in list(active_duels.items()):
+        if duel.get("status") != "open" or duel.get("expires", 0) <= now:
+            continue
+        items.append({
+            "id": duel_id,
+            "challenger_name": duel["challenger_name"],
+            "bet": int(duel["bet"]),
+            "expires_in": max(0, int(duel["expires"] - now)),
+            "mine": int(duel["challenger_id"]) == user["id"],
+        })
+    items.sort(key=lambda item: item["expires_in"])
+    return web.json_response({"duels": items[:50], "my_active": user["id"] in duel_by_user})
+
+
+async def miniapp_duel_create(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    uid = user["id"]
+    if await db.is_banned(uid):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        bet = int((await request.json())["bet"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a whole-number bet")
+    if not DUEL_MIN_BET <= bet <= DUEL_MAX_BET:
+        raise web.HTTPBadRequest(text=f"Bet must be between {DUEL_MIN_BET} and {DUEL_MAX_BET} DC")
+    if uid in duel_by_user:
+        raise web.HTTPConflict(text="You already have an active duel")
+    if uid in duel_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {DUEL_COOLDOWN} seconds before creating another duel")
+    balance, _ = await db.get_coins(uid)
+    if balance < bet:
+        raise web.HTTPBadRequest(text=f"Insufficient DC. Real balance: {balance}")
+    duel_id = f"{uid:x}{random.getrandbits(32):08x}"
+    while duel_id in active_duels:
+        duel_id = f"{uid:x}{random.getrandbits(32):08x}"
+    active_duels[duel_id] = {
+        "challenger_id": uid,
+        "challenger_name": user["name"],
+        "opponent_id": None,
+        "target_id": None,
+        "target_name": None,
+        "bet": bet,
+        "chat_id": MAIN_CHAT_ID,
+        "message_id": None,
+        "expires": time.time() + DUEL_TIMEOUT,
+        "status": "open",
+        "miniapp": True,
+    }
+    duel_by_user[uid] = duel_id
+    duel_cooldowns[uid] = True
+    return web.json_response({"ok": True, "duel_id": duel_id, "expires_in": DUEL_TIMEOUT})
+
+
+async def miniapp_duel_cancel(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    try:
+        duel_id = str((await request.json())["duel_id"])
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid duel")
+    duel = active_duels.get(duel_id)
+    if not duel or duel.get("status") != "open":
+        raise web.HTTPConflict(text="Duel is already closed")
+    if duel["challenger_id"] != user["id"]:
+        raise web.HTTPForbidden(text="Only the creator can cancel this duel")
+    release_duel(duel_id)
+    return web.json_response({"ok": True})
+
+
+async def miniapp_duel_accept(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    opponent_id = user["id"]
+    if await db.is_banned(opponent_id):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        duel_id = str((await request.json())["duel_id"])
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid duel")
+    duel = active_duels.get(duel_id)
+    if not duel or duel.get("status") != "open" or duel.get("expires", 0) <= time.time():
+        raise web.HTTPConflict(text="Duel is already closed or expired")
+    challenger_id = int(duel["challenger_id"])
+    if opponent_id == challenger_id:
+        raise web.HTTPBadRequest(text="You cannot accept your own duel")
+    if opponent_id in duel_by_user:
+        raise web.HTTPConflict(text="You already have an active duel")
+    if opponent_id in duel_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {DUEL_COOLDOWN} seconds before accepting a duel")
+    if await db.is_banned(challenger_id):
+        release_duel(duel_id)
+        raise web.HTTPConflict(text="Duel creator is blocked")
+    duel["status"] = "processing"
+    duel["opponent_id"] = opponent_id
+    duel_by_user[opponent_id] = duel_id
+    opponent_name = user["name"]
+    winner_id = random.choice((challenger_id, opponent_id))
+    bet = int(duel["bet"])
+    try:
+        settled, challenger_balance, opponent_balance = await db.settle_duel(challenger_id, opponent_id, bet, winner_id)
+    except Exception:
+        duel["status"] = "open"
+        duel["opponent_id"] = None
+        duel_by_user.pop(opponent_id, None)
+        logger.exception("Mini App duel settlement failed")
+        raise web.HTTPBadGateway(text="Could not settle this duel")
+    if not settled:
+        duel["status"] = "open"
+        duel["opponent_id"] = None
+        duel_by_user.pop(opponent_id, None)
+        if challenger_balance < bet:
+            release_duel(duel_id)
+            raise web.HTTPConflict(text="Duel creator no longer has enough DC")
+        raise web.HTTPBadRequest(text=f"Insufficient DC. Real balance: {opponent_balance}")
+    duel_cooldowns[challenger_id] = True
+    duel_cooldowns[opponent_id] = True
+    release_duel(duel_id)
+    challenger_name = duel["challenger_name"]
+    for participant, participant_name in ((challenger_id, challenger_name), (opponent_id, opponent_name)):
+        await school_event.record(
+            participant,
+            participant_name,
+            f"duel:{duel_id}",
+            {"duels": 1, "duelwin": int(participant == winner_id), "games": 1, "gamewin": int(participant == winner_id), "bets": bet},
+        )
+    winner_name = challenger_name if winner_id == challenger_id else opponent_name
+    loser_name = opponent_name if winner_id == challenger_id else challenger_name
+    result_text = f"⚔️ Дуэль завершена!\n\n{challenger_name} VS {opponent_name}\nСтавка каждого: {bet:,} DC\n🏆 Победитель: {winner_name}\n💰 Выигрыш: {bet * 2:,} DC\n{loser_name} проиграл ставку.".replace(",", " ")
+    bot: Bot = request.app["bot"]
+    for participant in (challenger_id, opponent_id):
+        try:
+            await bot.send_message(participant, result_text)
+        except Exception:
+            logger.info("Could not notify duel participant %s", participant)
+    return web.json_response({
+        "ok": True,
+        "winner_id": winner_id,
+        "winner_name": winner_name,
+        "prize": bet * 2,
+        "balance": await db.get_display_balance(opponent_id),
+        "result": result_text,
+    })
+
+
+async def miniapp_mini_events(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    async with connect(db.path) as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            "SELECT id,kind,reward,max_participants,ends,status FROM mini_events WHERE chat_id=? AND status='active' AND ends>? ORDER BY created_at DESC LIMIT 1",
+            (str(REQUIRED_CHANNEL), time.time()),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return web.json_response({"event": None})
+        event = dict(row)
+        async with connection.execute("SELECT COUNT(*) FROM mini_event_players WHERE event_id=?", (event["id"],)) as cursor:
+            event["participants"] = int((await cursor.fetchone())[0])
+        async with connection.execute("SELECT 1 FROM mini_event_players WHERE event_id=? AND user_id=?", (event["id"], user["id"])) as cursor:
+            event["joined"] = await cursor.fetchone() is not None
+    event["ends_in"] = max(0, int(event["ends"] - time.time()))
+    return web.json_response({"event": event})
+
+
+async def miniapp_mini_event_join(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    if await db.is_banned(user["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        event_id = int((await request.json())["event_id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid event")
+    result = await db.join_mini_event(event_id, user["id"], user["name"])
+    if result["status"] == "already":
+        raise web.HTTPConflict(text="You have already joined this event")
+    if result["status"] in {"finished", "expired"}:
+        raise web.HTTPConflict(text="This event has ended")
+    return web.json_response({**result, "balance": await db.get_display_balance(user["id"])})
+
+
+async def miniapp_support_send(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    if await db.is_banned(user["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    if not await db.has_support_access(user["id"]):
+        raise web.HTTPForbidden(text="Support access has not been granted")
+    try:
+        message_text = str((await request.json())["message"]).strip()
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a message")
+    if not message_text or len(message_text) > 2000:
+        raise web.HTTPBadRequest(text="Message must be between 1 and 2000 characters")
+    await db.set_support_session(user["id"], True)
+    bot: Bot = request.app["bot"]
+    sent = await bot.send_message(
+        ADMIN_ID,
+        f"💬 Сообщение из Mini App\n\n👤 {user['name']}\n🆔 {user['id']}\n\n{message_text}",
+    )
+    await db.link_support_message(sent.message_id, user["id"])
+    return web.json_response({"ok": True, "message": "Message sent to support"})
+
+
+async def miniapp_support_close(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    await db.set_support_session(user["id"], False)
+    bot: Bot = request.app["bot"]
+    try:
+        await bot.send_message(ADMIN_ID, f"🔒 Пользователь {user['name']} ({user['id']}) закрыл диалог из Mini App.")
+    except Exception:
+        logger.info("Could not notify support admin about closed Mini App session")
+    return web.json_response({"ok": True})
+
+
+miniapp_bonus_lock = asyncio.Lock()
+
+
+async def miniapp_bonus(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    if await db.is_banned(user["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    async with miniapp_bonus_lock:
+        user_id = user["id"]
+        chance, msg_count, last_bonus = await db.get_user(user_id, MAIN_CHAT_ID)
+        balance, last_coin_bonus = await db.get_coins(user_id)
+        now = time.time()
+        vip = await db.is_vip(user_id)
+        chance_awarded = 0.0
+        coins_awarded = 0
+        if now - last_bonus >= BONUS_COOLDOWN:
+            chance_awarded = round(random.uniform(0.05, 0.2), 3)
+            chance = min(round(chance + chance_awarded, 3), MAX_CHANCE)
+            await db.update_user(user_id, MAIN_CHAT_ID, user["name"], chance, msg_count, now)
+        if now - last_coin_bonus >= COINS_BONUS_CD:
+            coins_awarded = COINS_VIP_BONUS if vip else COINS_BONUS
+            await db.add_coins(user_id, coins_awarded)
+            await db.set_coin_bonus_time(user_id)
+            await school_event.record(user_id, user["name"], f"miniapp-bonus:{user_id}:{int(now // COINS_BONUS_CD)}", {"bonus": 1})
+        return web.json_response({
+            "chance_awarded": chance_awarded,
+            "chance": chance,
+            "chance_remaining": max(0, int(BONUS_COOLDOWN - (now - last_bonus))) if not chance_awarded else 0,
+            "coins_awarded": coins_awarded,
+            "coin_remaining": max(0, int(COINS_BONUS_CD - (now - last_coin_bonus))) if not coins_awarded else 0,
+            "balance": await db.get_display_balance(user_id),
+        })
+
+
+async def miniapp_transfer(request: web.Request) -> web.Response:
+    sender = await miniapp_authorize(request)
+    if await db.is_banned(sender["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        recipient_text = str(payload["recipient"]).strip()
+        amount = int(payload["amount"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a recipient and a whole-number amount")
+    if not 1 <= amount <= 9_000_000_000_000_000:
+        raise web.HTTPBadRequest(text="Invalid transfer amount")
+    if recipient_text.startswith("@"):
+        username = recipient_text[1:].strip().lower()
+        if not username or any(ch.isspace() for ch in username):
+            raise web.HTTPBadRequest(text="Invalid username")
+        recipient = await db.find_user_by_username(username)
+        if not recipient:
+            raise web.HTTPNotFound(text="Username not found. The recipient must have used the bot or written in the main chat.")
+        recipient_id, recipient_name = int(recipient[0]), str(recipient[1])
+        bot: Bot = request.app["bot"]
+        try:
+            telegram_recipient = await bot.get_chat(recipient_id)
+        except Exception:
+            raise web.HTTPBadRequest(text="Could not verify the recipient username. Use their numeric Telegram ID.")
+        if not telegram_recipient.username or telegram_recipient.username.lower() != username:
+            raise web.HTTPBadRequest(text="Recipient username has changed. Use their current username or numeric Telegram ID.")
+    else:
+        try:
+            recipient_id = int(recipient_text)
+        except ValueError:
+            raise web.HTTPBadRequest(text="Use a Telegram numeric ID or @username")
+        if recipient_id <= 0:
+            raise web.HTTPBadRequest(text="Invalid recipient")
+        recipient_name = await db.get_user_name(recipient_id)
+        async with connect(db.path) as connection:
+            async with connection.execute("SELECT 1 FROM user_stats WHERE user_id=? LIMIT 1", (recipient_id,)) as cursor:
+                known = await cursor.fetchone()
+        if not known:
+            raise web.HTTPNotFound(text="Recipient not found. Ask them to use the bot or write in the main chat.")
+    if recipient_id == sender["id"]:
+        raise web.HTTPBadRequest(text="You cannot transfer DC to yourself")
+    if await db.is_banned(recipient_id):
+        raise web.HTTPBadRequest(text="Recipient account is blocked")
+    ok, sender_balance, recipient_balance = await db.transfer_coins(sender["id"], recipient_id, amount)
+    if not ok:
+        raise web.HTTPBadRequest(text="Insufficient balance or invalid transfer")
+    bot: Bot = request.app["bot"]
+    try:
+        await bot.send_message(recipient_id, f"🪙 Ты получил {amount:,} DC от {sender['name']}.".replace(",", " "))
+    except Exception:
+        logger.info("Could not notify transfer recipient %s", recipient_id)
+    return web.json_response({
+        "ok": True,
+        "amount": amount,
+        "recipient": recipient_name,
+        "balance": await db.get_display_balance(sender["id"]),
+        "recipient_balance": recipient_balance,
+    })
+
+
+async def miniapp_jackpot(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    summary = await db.jackpot_summary(user["id"])
+    top = await db.jackpot_top()
+    winners = await db.jackpot_winners()
+    return web.json_response({
+        "summary": summary,
+        "top": [{"name": str(row[0]), "tickets": int(row[1])} for row in top],
+        "winners": [{"name": str(row[2]), "date": str(row[0]), "prize": int(row[1])} for row in winners],
+    })
+
+
 async def miniapp_set_booster(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     try:
@@ -9349,6 +9899,12 @@ async def miniapp_play_game(request: web.Request) -> web.Response:
     else:
         refund = await booster_loss_refund(user["id"], bet, booster)
         await db.record_jackpot_loss(user["id"], user["name"], bet, f"mini:{game}:{time.time_ns()}")
+    await school_event.record(
+        user["id"],
+        user["name"],
+        f"mini:{game}:{time.time_ns()}",
+        {"games": 1, "gamewin": int(won), "bets": bet},
+    )
     shown, _, _ = await db.get_balance_details(user["id"])
     return web.json_response({"won": won, "result": result, "prize": prize, "refund": refund, "balance": shown, "booster": BOOSTERS[booster][0] if booster else None})
 
@@ -9472,7 +10028,17 @@ async def miniapp_admin_overview(request: web.Request) -> web.Response:
         async with connection.execute("SELECT COUNT(*) FROM premium_orders") as cursor:
             premium_orders = int((await cursor.fetchone())[0])
     promos = await db.get_promos()
-    return web.json_response({"players": players, "pending_gifts": pending_gifts, "premium_orders": premium_orders, "promos": [{"code": code, "reward": reward, "type": kind, "case_id": case_id, "case_count": count, "max_uses": maximum, "uses": uses} for code, reward, kind, case_id, count, maximum, uses in promos], "star_packages": STAR_DC_PACKAGES})
+    gifts = await db.get_pending_gifts()
+    orders = await db.get_premium_orders()
+    return web.json_response({
+        "players": players,
+        "pending_gifts": pending_gifts,
+        "premium_orders": premium_orders,
+        "promos": [{"code": code, "reward": reward, "type": kind, "case_id": case_id, "case_count": count, "max_uses": maximum, "uses": uses} for code, reward, kind, case_id, count, maximum, uses in promos],
+        "pending_gift_items": [{"id": row[0], "user_id": row[1], "user_name": row[2], "gift_id": row[3], "reason": row[4]} for row in gifts[:20]],
+        "premium_order_items": [{"id": row[0], "user_id": row[1], "user_name": row[2], "cost": row[3]} for row in orders[:20]],
+        "star_packages": STAR_DC_PACKAGES,
+    })
 
 
 async def miniapp_admin_action(request: web.Request) -> web.Response:
@@ -9483,7 +10049,7 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
         user_id = int(payload.get("user_id", 0))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise web.HTTPBadRequest(text="Invalid admin request")
-    if action in {"add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban"} and user_id <= 0:
+    if action in {"add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip"} and user_id <= 0:
         raise web.HTTPBadRequest(text="A valid user ID is required")
     if action in {"add_coins", "remove_coins"}:
         try:
@@ -9507,6 +10073,67 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
         await db.ban_user(user_id, str(payload.get("reason", ""))[:300])
     elif action == "unban":
         await db.unban_user(user_id)
+    elif action == "vip":
+        await db.set_vip(user_id)
+    elif action == "unvip":
+        await db.remove_vip(user_id)
+    elif action == "create_promo":
+        code = str(payload.get("code", "")).strip().upper()
+        try:
+            reward = int(payload["reward"])
+            raw_limit = payload.get("max_uses")
+            max_uses = int(raw_limit) if raw_limit not in (None, "") else None
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Enter a valid reward and optional limit")
+        if not 3 <= len(code) <= 32 or not all((char.isascii() and char.isalnum()) or char in "_-" for char in code):
+            raise web.HTTPBadRequest(text="Promo code must be 3-32 characters: letters, digits, _ or -")
+        if not await db.create_promo(code, reward, max_uses):
+            raise web.HTTPBadRequest(text="Could not create promo. Check reward, limit and code uniqueness.")
+        limit_text = str(max_uses) if max_uses is not None else "без лимита"
+        bot: Bot = request.app["bot"]
+        published = await publish_promo(
+            bot,
+            f"🎁 Новый промокод!\n\n🔑 Код: <code>{code}</code>\n🪙 Награда: {reward:,} DC\n👥 Активаций: {limit_text}\n\nАктивировать в боте: промо {code}".replace(",", " "),
+        )
+        return web.json_response({"ok": True, "code": code, "published": bool(published)})
+    elif action == "delete_promo":
+        code = str(payload.get("code", "")).strip().upper()
+        if not code or not await db.delete_promo(code):
+            raise web.HTTPNotFound(text="Promo code was not found")
+    elif action in {"deliver_pending_gift", "delete_pending_gift"}:
+        try:
+            gift_db_id = int(payload["item_id"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="A valid pending gift ID is required")
+        gift = next((item for item in await db.get_pending_gifts() if int(item[0]) == gift_db_id), None)
+        if not gift:
+            raise web.HTTPNotFound(text="Pending gift was not found")
+        if action == "deliver_pending_gift":
+            bot: Bot = request.app["bot"]
+            try:
+                await send_bot_gift(bot, int(gift[1]), str(gift[3]))
+            except Exception:
+                logger.exception("Mini App pending gift delivery failed")
+                raise web.HTTPBadGateway(text="Telegram could not queue this gift")
+        await db.remove_pending_gift(gift_db_id)
+    elif action in {"premium_done", "premium_refund"}:
+        try:
+            order_id = int(payload["item_id"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="A valid Premium order ID is required")
+        order = next((item for item in await db.get_premium_orders() if int(item[0]) == order_id), None)
+        if not order:
+            raise web.HTTPNotFound(text="Premium order was not found")
+        _, target_user_id, target_name, cost, _created = order
+        bot: Bot = request.app["bot"]
+        if action == "premium_refund":
+            await db.add_coins(int(target_user_id), int(cost))
+        await db.remove_premium_order(order_id)
+        try:
+            note = "💎 Premium на месяц выдан." if action == "premium_done" else f"↩️ Тебе вернули {int(cost):,} DC.".replace(",", " ")
+            await bot.send_message(int(target_user_id), note)
+        except Exception:
+            logger.warning("Mini App could not notify Premium order user %s", target_user_id)
     else:
         raise web.HTTPBadRequest(text="Unknown admin action")
     return web.json_response({"ok": True})
@@ -9527,6 +10154,22 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/miniapp/{filename}", miniapp_asset)
     app.router.add_get("/api/me", miniapp_me)
     app.router.add_get("/api/top", miniapp_top)
+    app.router.add_get("/api/jackpot", miniapp_jackpot)
+    app.router.add_post("/api/transfer", miniapp_transfer)
+    app.router.add_post("/api/bonus", miniapp_bonus)
+    app.router.add_get("/api/duels", miniapp_duels)
+    app.router.add_post("/api/duels/create", miniapp_duel_create)
+    app.router.add_post("/api/duels/cancel", miniapp_duel_cancel)
+    app.router.add_post("/api/duels/accept", miniapp_duel_accept)
+    app.router.add_get("/api/mini-events", miniapp_mini_events)
+    app.router.add_post("/api/mini-events/join", miniapp_mini_event_join)
+    app.router.add_post("/api/support/send", miniapp_support_send)
+    app.router.add_post("/api/support/close", miniapp_support_close)
+    app.router.add_post("/api/purchase/invoice", miniapp_create_invoice)
+    app.router.add_post("/api/mines/start", miniapp_mines_start)
+    app.router.add_post("/api/mines/action", miniapp_mines_action)
+    app.router.add_post("/api/crash/start", miniapp_crash_start)
+    app.router.add_post("/api/crash/action", miniapp_crash_action)
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
     app.router.add_post("/api/game/play", miniapp_play_game)
