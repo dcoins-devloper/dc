@@ -220,6 +220,7 @@ async function startCrash() {
   if (!Number.isSafeInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
   try {
     state.crashGame = await api("/api/crash/start", { method: "POST", body: JSON.stringify({ bet, mode }) });
+    await syncProfile();
     state.balance = state.crashGame.balance;
     state.view = "crash-active";
     render();
@@ -255,6 +256,7 @@ async function startMines() {
   if (!Number.isSafeInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
   try {
     state.minesGame = await api("/api/mines/start", { method: "POST", body: JSON.stringify({ bet }) });
+    await syncProfile();
     state.balance = state.minesGame.balance;
     state.view = "mines-active";
     render();
@@ -375,6 +377,7 @@ async function playGame(game) {
   if (!Number.isInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
   try {
     const data = await api("/api/game/play", { method: "POST", body: JSON.stringify({ game, bet, option }) });
+    await syncProfile();
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
   } catch (error) { alert(error.message || "Не удалось завершить игру."); }
