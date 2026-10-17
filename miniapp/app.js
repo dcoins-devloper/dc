@@ -351,7 +351,7 @@ async function joinMiniEvent(eventId) {
     if (data.complete) {
       state.miniEvent = null;
       state.miniEventLoaded = true;
-      showNotice("Мини-ивент завершён", "Все награды уже забраны.", btn("К мини-ивентам", "mini-events", "primary"));
+      showNotice("Мини-ивент завершён", `Награда: +${format(data.reward || 0)} DC. Все награды уже забраны. Баланс: ${format(state.balance)} DC.`, btn("К мини-ивентам", "mini-events", "primary"));
       return;
     }
     if (data.kind === "ticket") {
