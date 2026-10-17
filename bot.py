@@ -9475,6 +9475,42 @@ async def miniapp_create_invoice(request: web.Request) -> web.Response:
     return web.json_response({"invoice_link": link, "amount": dc_amount, "stars": stars})
 
 
+async def miniapp_mini_events(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    async with connect(db.path) as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            "SELECT id,kind,reward,max_participants,ends,status FROM mini_events WHERE chat_id=? AND status='active' AND ends>? ORDER BY created_at DESC LIMIT 1",
+            (str(REQUIRED_CHANNEL), time.time()),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return web.json_response({"event": None})
+        event = dict(row)
+        async with connection.execute("SELECT COUNT(*) FROM mini_event_players WHERE event_id=?", (event["id"],)) as cursor:
+            event["participants"] = int((await cursor.fetchone())[0])
+        async with connection.execute("SELECT 1 FROM mini_event_players WHERE event_id=? AND user_id=?", (event["id"], user["id"])) as cursor:
+            event["joined"] = await cursor.fetchone() is not None
+    event["ends_in"] = max(0, int(event["ends"] - time.time()))
+    return web.json_response({"event": event})
+
+
+async def miniapp_mini_event_join(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    if await db.is_banned(user["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        event_id = int((await request.json())["event_id"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid event")
+    result = await db.join_mini_event(event_id, user["id"], user["name"])
+    if result["status"] == "already":
+        raise web.HTTPConflict(text="You have already joined this event")
+    if result["status"] in {"finished", "expired"}:
+        raise web.HTTPConflict(text="This event has ended")
+    return web.json_response({**result, "balance": await db.get_display_balance(user["id"])})
+
+
 async def miniapp_support_send(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     if await db.is_banned(user["id"]):
@@ -9936,6 +9972,8 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/api/jackpot", miniapp_jackpot)
     app.router.add_post("/api/transfer", miniapp_transfer)
     app.router.add_post("/api/bonus", miniapp_bonus)
+    app.router.add_get("/api/mini-events", miniapp_mini_events)
+    app.router.add_post("/api/mini-events/join", miniapp_mini_event_join)
     app.router.add_post("/api/support/send", miniapp_support_send)
     app.router.add_post("/api/support/close", miniapp_support_close)
     app.router.add_post("/api/purchase/invoice", miniapp_create_invoice)
