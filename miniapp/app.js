@@ -96,18 +96,15 @@ function renderPandora() { document.querySelector("#screen").innerHTML = page("�
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-view], [data-action]");
   if (!target) return;
-  if (target.dataset.view === "toggle-privacy") {
-    setPrivacy(!state.hiddenBalance);
-    return;
-  }
-  if (["case-open", "pandora-open", "promo-activate", "support-send"].includes(target.dataset.view)) {
-    alert("Действие будет выполняться через защищённый API бота после подключения Mini App.");
-    return;
-  }
+  if (target.dataset.view === "toggle-privacy") { setPrivacy(!state.hiddenBalance); return; }
+  if (target.dataset.view === "case-open") { openCase(); return; }
+  if (target.dataset.view === "pandora-open") { openPandora(); return; }
+  if (target.dataset.view === "promo-activate") { redeemPromo(); return; }
+  if (target.dataset.view === "support-send") { alert("Чат поддержки пока не подключён к Mini App API. Напиши через бота."); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
-  if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
-  alert("Действие будет выполняться через защищённый API бота после подключения Mini App.");
+  if (target.dataset.action === "buy") { alert("Покупка Stars пока не подключена к Mini App. Используй раздел покупки в боте; баланс здесь не меняется."); return; }
+  if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
 });
 
 async function api(path, options = {}) {
