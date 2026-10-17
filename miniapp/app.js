@@ -16,6 +16,8 @@ const state = {
   adminOverview: null,
   miniEvent: null,
   miniEventLoaded: false,
+  duels: [],
+  duelsLoaded: false,
   top: [],
   initData: "",
   activeGame: null,
@@ -65,7 +67,7 @@ const views = {
   top: () => page("Топ игроков", "Баланс скрытых игроков не раскрывается.", `<div class="list">${state.top.length ? state.top.map((player, i) => `<div class="list-row">${icon(i + 1)}<span class="row-main"><strong>${escapeHtml(player.name)}</strong><span>${player.hidden && player.balance === null ? "🔒 Скрыто" : `${format(player.balance)} DC`}</span></span>${i === 0 ? '<span class="tag amber">Лидер</span>' : ""}</div>`).join("") : '<div class="notice"><b>⌁</b><span>Загружаем рейтинг…</span></div>'}</div>`),
   promo: () => page("Промокод", "Введи код, который получил в канале или у администрации.", `<div class="modal"><h2>Активация промокода</h2><p>Код можно активировать один раз, если его лимит ещё не исчерпан.</p><div class="section"><input class="input" id="promo-code" placeholder="Введите код" autocomplete="off" maxlength="32" /></div><div class="modal-actions">${btn("Активировать", "promo-activate", "primary")}</div></div>`),
   support: () => page("Чат с администратором", state.supportAccess ? "Напиши сообщение — оно попадёт администратору в боте." : "Для доступа к диалогу требуется разрешение администрации.", state.supportAccess ? `<div class="modal"><h2>Диалог с поддержкой</h2><p>Не отправляй коды входа Telegram, пароль 2FA или строку сессии.</p><div class="section"><textarea class="input" id="support-message" rows="4" maxlength="2000" placeholder="Напиши сообщение..."></textarea></div><div class="modal-actions"><button class="button primary" data-action="support-send">Отправить</button><button class="button secondary" data-action="support-close">Закрыть диалог</button></div></div>` : `<div class="notice"><b>i</b><span>Доступ пока не выдан. Обратись к администратору через бота.</span></div>`),
-  duels: () => page("Дуэли", "Дуэли проводятся в разрешённых чатах D-COINS.", `<div class="notice"><b>⚔</b><span>Минимальная ставка — 5 DC, максимальная — 100 000 DC. Комиссии нет.</span></div>`),
+  duels: () => page("Дуэли", "Создавай вызов или принимай открытую дуэль. Победитель получает банк.", `<div class="modal"><h2>Создать дуэль</h2><p>Ставка каждого игрока: от 5 до 100 000 DC. Победитель получает сумму двух ставок.</p><div class="section"><input class="input" id="duel-bet" type="number" min="5" max="100000" step="1" placeholder="Твоя ставка" /></div><div class="modal-actions"><button class="button primary" data-action="duel-create">Создать вызов</button><button class="button secondary" data-action="duel-refresh">Обновить список</button></div></div><div class="section-title"><h2>Открытые дуэли</h2></div><div class="list">${state.duels.map(d => `<div class="list-row">${icon("⚔")}<span class="row-main"><strong>${escapeHtml(d.challenger_name)}</strong><span>Ставка ${format(d.bet)} DC · осталось ${formatDuration(d.expires_in)}</span></span>${d.mine ? `<button class="button secondary" data-action="duel-cancel" data-duel-id="${d.id}">Отменить</button>` : `<button class="button primary" data-action="duel-accept" data-duel-id="${d.id}" ${state.duels.some(x => x.mine) ? "disabled" : ""}>Принять</button>`}</div>`).join("") || '<div class="notice"><b>⚔</b><span>Открытых дуэлей пока нет.</span></div>'}</div>`),
   "mini-events": () => state.miniEvent ? page("Мини-ивенты", "Активное событие из канала D-COINS.", `<div class="modal"><h2>${({first:"Первый участник",first_n:"Первые участники",ticket:"Счастливый билет"})[state.miniEvent.kind] || "Мини-ивент"}</h2><div class="stat-row"><div class="stat"><b>${format(state.miniEvent.reward)}</b><small>Награда DC</small></div><div class="stat"><b>${state.miniEvent.participants}</b><small>Участников</small></div><div class="stat"><b>${formatDuration(state.miniEvent.ends_in)}</b><small>Осталось</small></div></div><p class="lead">${state.miniEvent.kind === "ticket" ? "После завершения система выберет победителя случайным образом." : `Награда начисляется первым ${state.miniEvent.max_participants} участникам.`}</p><div class="modal-actions"><button class="button primary" data-action="mini-event-join" data-event-id="${state.miniEvent.id}" ${state.miniEvent.joined ? "disabled" : ""}>${state.miniEvent.joined ? "Ты уже участвуешь" : "Участвовать"}</button><button class="button secondary" data-action="mini-event-refresh">Обновить</button></div></div>`) : page("Мини-ивенты", "Активные события из канала D-COINS.", `<div class="notice"><b>⚡</b><span>${state.miniEventLoaded ? "Сейчас активных мини-ивентов нет. Новые события появятся здесь автоматически после обновления." : "Загружаем активные события..."}</span></div><div class="section"><button class="button secondary wide" data-action="mini-event-refresh">Обновить</button></div>`),
   help: () => page("Как играть", "Короткие правила без лишнего.", `<div class="list">${["Игры","Кейсы","Бустеры","Джекпот дня","Промокоды"].map((x,i)=>`<div class="list-row">${icon(i+1)}<span class="row-main"><strong>${x}</strong><span>${helpText(x)}</span></span></div>`).join("")}</div>`),
   "jackpot-top": () => page("Топ билетов", "Участники сегодняшнего джекпота.", `<div class="list">${state.jackpotTop?.length ? state.jackpotTop.map((p,i) => `<div class="list-row">${icon(i+1)}<span class="row-main"><strong>${escapeHtml(p.name)}</strong><span>Билеты за сегодня</span></span><span class="tag amber">${p.tickets}</span></div>`).join("") : '<div class="notice"><b>⌾</b><span>Пока нет участников с билетами.</span></div>'}</div>`),
@@ -99,6 +101,7 @@ function render() {
   if (["jackpot", "jackpot-top", "jackpot-winners"].includes(view) && state.jackpotTop === null) loadJackpot();
   if (["admin-promos", "admin-settings"].includes(view) && state.isAdmin && !state.adminOverview) loadAdminOverview();
   if (view === "mini-events" && !state.miniEventLoaded) loadMiniEvent();
+  if (view === "duels" && !state.duelsLoaded) loadDuels();
 }
 function renderGame(game) {
   const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
@@ -130,6 +133,10 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "support-close") { closeSupportChat(); return; }
   if (target.dataset.action === "mini-event-join") { joinMiniEvent(Number(target.dataset.eventId)); return; }
   if (target.dataset.action === "mini-event-refresh") { state.miniEventLoaded = false; loadMiniEvent(); return; }
+  if (target.dataset.action === "duel-create") { createDuel(); return; }
+  if (target.dataset.action === "duel-refresh") { state.duelsLoaded = false; loadDuels(); return; }
+  if (target.dataset.action === "duel-cancel") { cancelDuel(target.dataset.duelId); return; }
+  if (target.dataset.action === "duel-accept") { acceptDuel(target.dataset.duelId); return; }
   if (target.dataset.action === "daily-bonus") { claimDailyBonus(); return; }
   if (target.dataset.action === "mines-start") { startMines(); return; }
   if (target.dataset.action === "crash-mode") { state.crashMode = target.dataset.mode; document.querySelectorAll("[data-action='crash-mode']").forEach(node => node.classList.toggle("primary", node.dataset.mode === state.crashMode)); return; }
@@ -277,6 +284,45 @@ async function minesAction(action, cell) {
     if (data.finished) await syncProfile();
     render();
   } catch (error) { alert(error.message || "Не удалось выполнить ход."); }
+}
+
+async function loadDuels() {
+  try {
+    const data = await api("/api/duels");
+    state.duels = data.duels || [];
+    state.duelsLoaded = true;
+    if (state.view === "duels") render();
+  } catch (error) {
+    state.duelsLoaded = true;
+    if (state.view === "duels") render();
+    alert(error.message || "Не удалось загрузить дуэли.");
+  }
+}
+async function createDuel() {
+  const bet = Number(document.querySelector("#duel-bet")?.value);
+  if (!Number.isSafeInteger(bet) || bet < 5 || bet > 100000) { alert("Ставка должна быть от 5 до 100 000 DC."); return; }
+  try {
+    await api("/api/duels/create", { method: "POST", body: JSON.stringify({ bet }) });
+    state.duelsLoaded = false;
+    await loadDuels();
+    alert("Дуэль создана. Другие игроки могут принять её в Mini App.");
+  } catch (error) { alert(error.message || "Не удалось создать дуэль."); }
+}
+async function acceptDuel(duelId) {
+  try {
+    const data = await api("/api/duels/accept", { method: "POST", body: JSON.stringify({ duel_id: duelId }) });
+    state.balance = data.balance;
+    state.duelsLoaded = false;
+    await syncProfile().catch(() => {});
+    showNotice("Дуэль завершена", data.result || `Победитель: ${data.winner_name}. Выигрыш: ${format(data.prize)} DC.`, btn("К дуэлям", "duels", "primary"));
+  } catch (error) { alert(error.message || "Не удалось принять дуэль."); }
+}
+async function cancelDuel(duelId) {
+  try {
+    await api("/api/duels/cancel", { method: "POST", body: JSON.stringify({ duel_id: duelId }) });
+    state.duelsLoaded = false;
+    await loadDuels();
+  } catch (error) { alert(error.message || "Не удалось отменить дуэль."); }
 }
 
 async function loadMiniEvent() {
