@@ -84,7 +84,6 @@ function render() {
   if (view === "top" && !state.top.length) loadTop();
   if (["jackpot", "jackpot-top", "jackpot-winners"].includes(view) && state.jackpotTop === null) loadJackpot();
   if (["admin-promos", "admin-settings"].includes(view) && state.isAdmin && !state.adminOverview) loadAdminOverview();
-  if (view === "jackpot") syncProfile().then(() => { if (state.view === "jackpot") render(); }).catch(() => {});
 }
 function renderGame(game) {
   const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
