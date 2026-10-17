@@ -184,6 +184,34 @@ async function redeemPromo() {
   } catch (error) { alert(error.message || "Не удалось активировать промокод."); }
 }
 
+async function purchaseStars(amount) {
+  if (!Number.isSafeInteger(amount) || amount <= 0) { alert("Некорректный пакет."); return; }
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp?.openInvoice) {
+    alert("Покупка Stars доступна только внутри Telegram Mini App.");
+    return;
+  }
+  try {
+    const data = await api("/api/purchase/invoice", { method: "POST", body: JSON.stringify({ amount }) });
+    webApp.openInvoice(data.invoice_link, async (status) => {
+      if (status === "paid") {
+        try {
+          await syncProfile();
+          state.view = "profile";
+          render();
+          showNotice("Оплата принята", `Покупка на ${format(data.amount)} DC за ${data.stars} ⭐ подтверждена Telegram. Если баланс обновился не сразу, подожди несколько секунд и открой профиль снова.`, btn("В профиль", "profile", "primary"));
+        } catch {
+          alert("Оплата прошла. Открой профиль через несколько секунд, чтобы обновить баланс.");
+        }
+      } else if (status === "failed") {
+        alert("Telegram не смог завершить оплату. Попробуй ещё раз.");
+      }
+    });
+  } catch (error) {
+    alert(error.message || "Не удалось создать счёт на оплату.");
+  }
+}
+
 async function claimDailyBonus() {
   try {
     const data = await api("/api/bonus", { method: "POST", body: JSON.stringify({}) });
