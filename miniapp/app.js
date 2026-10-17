@@ -244,7 +244,8 @@ function renderMines() {
   const cells = (game.cells || []).map((cell, index) => {
     const label = cell === "mine" ? "💣" : cell === "safe" ? "✓" : cell === "opened" ? "✓" : "❔";
     const disabled = game.finished || cell !== "hidden";
-    return `<button class="mine-cell ${cell}" type="button" data-action="mines-cell" data-cell="${index}" ${disabled ? "disabled" : ""} aria-label="Клетка ${index + 1}">${label}</button>`;
+    const cellClass = cell === "hidden" ? "covered" : cell;
+    return `<button class="mine-cell ${cellClass}" type="button" data-action="mines-cell" data-cell="${index}" ${disabled ? "disabled" : ""} aria-label="Клетка ${index + 1}">${label}</button>`;
   }).join("");
   const result = game.finished
     ? `<div class="notice"><b>${game.won ? "✓" : "×"}</b><span>${game.won ? `Выигрыш: ${format(game.prize || 0)} DC` : `Ставка проиграна${game.refund ? `. Возврат: ${format(game.refund)} DC` : ""}`}. Баланс: ${format(game.balance)} DC.</span></div>`
