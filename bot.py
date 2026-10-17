@@ -9893,6 +9893,12 @@ async def miniapp_play_game(request: web.Request) -> web.Response:
     else:
         refund = await booster_loss_refund(user["id"], bet, booster)
         await db.record_jackpot_loss(user["id"], user["name"], bet, f"mini:{game}:{time.time_ns()}")
+    await school_event.record(
+        user["id"],
+        user["name"],
+        f"mini:{game}:{time.time_ns()}",
+        {"games": 1, "gamewin": int(won), "bets": bet},
+    )
     shown, _, _ = await db.get_balance_details(user["id"])
     return web.json_response({"won": won, "result": result, "prize": prize, "refund": refund, "balance": shown, "booster": BOOSTERS[booster][0] if booster else None})
 
