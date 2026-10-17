@@ -9253,6 +9253,104 @@ async def miniapp_top(request: web.Request) -> web.Response:
     )
 
 
+def miniapp_crash_payload(game: dict, finished: bool = False) -> dict:
+    step = int(game["step"])
+    multiplier = float(game["multipliers"][min(step, len(game["multipliers"]) - 1)])
+    return {
+        "token": game["token"],
+        "mode": game["mode"],
+        "bet": game["bet"],
+        "step": step,
+        "height": step * 100,
+        "multiplier": multiplier,
+        "current_prize": int(game["bet"] * multiplier),
+        "booster": game.get("booster"),
+        "finished": finished,
+    }
+
+
+async def miniapp_crash_start(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    uid = user["id"]
+    if await db.is_banned(uid):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        mode = str(payload["mode"])
+        bet = int(payload["bet"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid Crash request")
+    if mode not in CRASH_MULTIPLIERS or not CASINO_MIN_BET <= bet <= MAX_BET:
+        raise web.HTTPBadRequest(text="Invalid Crash mode or bet")
+    if uid in active_games:
+        raise web.HTTPConflict(text="Finish your active game first")
+    booster = await db.get_active_booster(uid)
+    if booster == "double" and bet > 50000:
+        raise web.HTTPBadRequest(text="With x2 booster, maximum bet is 50 000 DC")
+    balance, _ = await db.get_coins(uid)
+    if booster != "free" and (balance < bet or not await db.remove_coins(uid, bet)):
+        raise web.HTTPBadRequest(text=f"Insufficient DC. Real balance: {balance}")
+    multipliers = CRASH_MULTIPLIERS[mode]
+    game = {
+        "game": "crash",
+        "mode": mode,
+        "bet": bet,
+        "step": 0,
+        "crash_at": crash_point(mode, len(multipliers)),
+        "multipliers": multipliers,
+        "token": secrets.token_hex(12),
+        "status": "active",
+        "chat_id": uid,
+        "message_id": None,
+        "expires": time.time() + CASINO_TIMEOUT,
+        "booster": booster,
+    }
+    await db.clear_active_booster(uid)
+    active_games[uid] = game
+    return web.json_response({**miniapp_crash_payload(game), "balance": await db.get_display_balance(uid)})
+
+
+async def miniapp_crash_action(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    uid = user["id"]
+    if await db.is_banned(uid):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        token = str(payload["token"])
+        action = str(payload["action"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid Crash action")
+    game = active_games.get(uid)
+    if not game or game.get("game") != "crash" or game.get("token") != token or game["expires"] <= time.time():
+        raise web.HTTPConflict(text="This Crash game has ended or expired")
+    if action == "forward":
+        next_step = game["step"] + 1
+        if next_step >= len(game["multipliers"]) or next_step == game["crash_at"]:
+            if booster_can_repeat(game.get("booster"), "crash"):
+                game["booster"] = None
+                game["crash_at"] = len(game["multipliers"]) + 1
+                game["step"] = min(next_step, len(game["multipliers"]) - 1)
+                return web.json_response({**miniapp_crash_payload(game), "continued_by_booster": True, "balance": await db.get_display_balance(uid)})
+            active_games.pop(uid, None)
+            if game.get("booster") == "insurance":
+                await db.add_coins(uid, game["bet"] // 4)
+            return web.json_response({**miniapp_crash_payload(game, True), "won": False, "prize": 0, "balance": await db.get_display_balance(uid)})
+        game["step"] = next_step
+        return web.json_response({**miniapp_crash_payload(game), "won": None, "balance": await db.get_display_balance(uid)})
+    if action == "cashout":
+        active_games.pop(uid, None)
+        multiplier = game["multipliers"][game["step"]]
+        prize = golden_payout(int(game["bet"] * multiplier))
+        if game.get("booster") == "double":
+            prize *= 2
+        elif game.get("booster") == "bonus25":
+            prize = int(prize * 1.25)
+        await db.add_coins(uid, prize)
+        return web.json_response({**miniapp_crash_payload(game, True), "won": True, "prize": prize, "balance": await db.get_display_balance(uid)})
+    raise web.HTTPBadRequest(text="Unknown Crash action")
+
+
 def miniapp_mines_payload(game: dict, reveal: bool = False) -> dict:
     opened = game["opened"]
     mines = game["mines"]
@@ -9804,6 +9902,8 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_post("/api/purchase/invoice", miniapp_create_invoice)
     app.router.add_post("/api/mines/start", miniapp_mines_start)
     app.router.add_post("/api/mines/action", miniapp_mines_action)
+    app.router.add_post("/api/crash/start", miniapp_crash_start)
+    app.router.add_post("/api/crash/action", miniapp_crash_action)
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
     app.router.add_post("/api/game/play", miniapp_play_game)
