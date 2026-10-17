@@ -10061,6 +10061,29 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
         await db.set_vip(user_id)
     elif action == "unvip":
         await db.remove_vip(user_id)
+    elif action == "create_promo":
+        code = str(payload.get("code", "")).strip().upper()
+        try:
+            reward = int(payload["reward"])
+            raw_limit = payload.get("max_uses")
+            max_uses = int(raw_limit) if raw_limit not in (None, "") else None
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Enter a valid reward and optional limit")
+        if not 3 <= len(code) <= 32 or not all((char.isascii() and char.isalnum()) or char in "_-" for char in code):
+            raise web.HTTPBadRequest(text="Promo code must be 3-32 characters: letters, digits, _ or -")
+        if not await db.create_promo(code, reward, max_uses):
+            raise web.HTTPBadRequest(text="Could not create promo. Check reward, limit and code uniqueness.")
+        limit_text = str(max_uses) if max_uses is not None else "без лимита"
+        bot: Bot = request.app["bot"]
+        published = await publish_promo(
+            bot,
+            f"🎁 Новый промокод!\n\n🔑 Код: <code>{code}</code>\n🪙 Награда: {reward:,} DC\n👥 Активаций: {limit_text}\n\nАктивировать в боте: промо {code}".replace(",", " "),
+        )
+        return web.json_response({"ok": True, "code": code, "published": bool(published)})
+    elif action == "delete_promo":
+        code = str(payload.get("code", "")).strip().upper()
+        if not code or not await db.delete_promo(code):
+            raise web.HTTPNotFound(text="Promo code was not found")
     elif action in {"deliver_pending_gift", "delete_pending_gift"}:
         try:
             gift_db_id = int(payload["item_id"])
