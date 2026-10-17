@@ -74,7 +74,7 @@ const views = {
   "jackpot-winners": () => page("Победители", "Последние выигрыши джекпота.", `<div class="list">${state.jackpotWinners?.length ? state.jackpotWinners.map(p => `<div class="list-row">${icon("★")}<span class="row-main"><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml(p.date)}</span></span><span class="tag amber">${format(p.prize)} DC</span></div>`).join("") : '<div class="notice"><b>★</b><span>История выигрышей пока пуста.</span></div>'}</div>`),
   "admin-users": () => page("Пользователи", "Действия доступны только владельцу бота.", `<div class="modal"><h2>Управление аккаунтом</h2><div class="section"><input class="input" id="admin-user-id" type="number" min="1" placeholder="Telegram ID пользователя" /></div><div class="section"><input class="input" id="admin-amount" type="number" min="1" placeholder="Сумма DC (для изменения баланса)" /></div><div class="section list"><button class="button primary" data-action="admin-do" data-admin-action="add_coins">Начислить DC</button><button class="button secondary" data-action="admin-do" data-admin-action="remove_coins">Снять DC</button><button class="button secondary" data-action="admin-do" data-admin-action="grant_support">Выдать доступ к поддержке</button><button class="button secondary" data-action="admin-do" data-admin-action="revoke_support">Забрать доступ к поддержке</button><button class="button danger" data-action="admin-do" data-admin-action="ban">Заблокировать</button><button class="button secondary" data-action="admin-do" data-admin-action="unban">Разблокировать</button><button class="button primary" data-action="admin-do" data-admin-action="vip">Выдать VIP</button><button class="button secondary" data-action="admin-do" data-admin-action="unvip">Снять VIP</button></div></div>`),
   "admin-economy": () => page("Экономика", "Управление ценами и шансами.", `<div class="notice"><b>◈</b><span>Изменения будут защищены проверкой администратора.</span></div>`),
-  "admin-promos": () => page("Промокоды и раздачи", "Сводка активных промокодов из базы бота.", `<div class="stat-row"><div class="stat"><b>${state.adminOverview?.players ?? "—"}</b><small>Игроков</small></div><div class="stat"><b>${state.adminOverview?.pending_gifts ?? "—"}</b><small>Подарков в очереди</small></div><div class="stat"><b>${state.adminOverview?.premium_orders ?? "—"}</b><small>Premium-заявок</small></div></div><div class="section list">${(state.adminOverview?.promos || []).map(p => `<div class="list-row">${icon("⌁")}<span class="row-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(String(p.reward))} · ${escapeHtml(p.type)} · ${p.uses}/${p.max_uses}</span></span></div>`).join("") || '<div class="notice"><b>⌁</b><span>Нет данных. Открой раздел, будучи администратором, и обнови страницу.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить сводку</button></div>`),
+  "admin-promos": () => page("Промокоды и раздачи", "Создавай DC-промокоды и управляй существующими.", `<div class="stat-row"><div class="stat"><b>${state.adminOverview?.players ?? "—"}</b><small>Игроков</small></div><div class="stat"><b>${state.adminOverview?.pending_gifts ?? "—"}</b><small>Подарков в очереди</small></div><div class="stat"><div class="stat"><b>${state.adminOverview?.premium_orders ?? "—"}</b><small>Premium-заявок</small></div></div><div class="modal"><h2>Создать DC-промокод</h2><div class="section"><input class="input" id="promo-new-code" maxlength="32" placeholder="Код, например WELCOME" /></div><div class="section"><input class="input" id="promo-new-reward" type="number" min="1" step="1" placeholder="Награда в DC" /></div><div class="section"><input class="input" id="promo-new-limit" type="number" min="1" step="1" placeholder="Лимит активаций (необязательно)" /></div><button class="button primary wide" data-action="admin-create-promo">Создать и опубликовать</button></div><div class="section list">${(state.adminOverview?.promos || []).map(p => `<div class="list-row">${icon("⌁")}<span class="row-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(String(p.reward))} · ${escapeHtml(p.type)} · ${p.uses}/${p.max_uses == null ? "∞" : p.max_uses}</span></span><button class="button danger" data-action="admin-delete-promo" data-promo-code="${p.code}">Удалить</button></div>`).join("") || '<div class="notice"><b>⌁</b><span>Промокодов пока нет.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить сводку</button></div>`),
   "admin-settings": () => page("Заявки и подарки", "Обработка очереди подарков и Premium-заявок.", `<div class="section-title"><h2>Подарки в очереди</h2></div><div class="list">${(state.adminOverview?.pending_gift_items || []).map(item => `<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${escapeHtml(item.gift_id)} · ${escapeHtml(item.reason || "")}</span></span><button class="button primary" data-action="admin-do" data-admin-action="deliver_pending_gift" data-item-id="${item.id}">Выдать</button><button class="button secondary" data-action="admin-do" data-admin-action="delete_pending_gift" data-item-id="${item.id}">Удалить</button></div>`).join("") || '<div class="notice"><b>✓</b><span>Нет подарков в очереди.</span></div>'}</div><div class="section-title"><h2>Premium-заявки</h2></div><div class="list">${(state.adminOverview?.premium_order_items || []).map(item => `<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${format(item.cost)} DC</span></span><button class="button primary" data-action="admin-do" data-admin-action="premium_done" data-item-id="${item.id}">Выдан</button><button class="button secondary" data-action="admin-do" data-admin-action="premium_refund" data-item-id="${item.id}">Возврат</button></div>`).join("") || '<div class="notice"><b>✓</b><span>Нет Premium-заявок.</span></div>'}</div><div class="section"><button class="button secondary wide" data-action="admin-refresh">Обновить заявки</button></div>`),
 };
 
@@ -149,6 +149,8 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
   if (target.dataset.action === "admin-refresh") { loadAdminOverview(); return; }
+  if (target.dataset.action === "admin-create-promo") { runAdminAction("create_promo"); return; }
+  if (target.dataset.action === "admin-delete-promo") { runAdminAction("delete_promo", undefined, target.dataset.promoCode); return; }
   if (target.dataset.action === "admin-do") { runAdminAction(target.dataset.adminAction, target.dataset.itemId); return; }
   if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
 });
@@ -487,12 +489,26 @@ async function loadAdminOverview() {
     if (["admin-promos", "admin-settings"].includes(state.view)) render();
   } catch (error) { alert(error.message || "Не удалось загрузить админ-сводку."); }
 }
-async function runAdminAction(action, itemId) {
+async function runAdminAction(action, itemId, promoCode) {
   if (!state.isAdmin) { alert("Нет доступа."); return; }
   const userId = Number(document.querySelector("#admin-user-id")?.value);
   const amount = Number(document.querySelector("#admin-amount")?.value);
   const payload = { action };
   if (itemId !== undefined) payload.item_id = Number(itemId);
+  if (action === "create_promo") {
+    const code = document.querySelector("#promo-new-code")?.value?.trim().toUpperCase();
+    const reward = Number(document.querySelector("#promo-new-reward")?.value);
+    const limitText = document.querySelector("#promo-new-limit")?.value?.trim();
+    const limit = limitText ? Number(limitText) : null;
+    if (!code || !/^[A-Z0-9_-]{3,32}$/.test(code)) { alert("Код: 3–32 символа, латинские буквы, цифры, _ или -."); return; }
+    if (!Number.isSafeInteger(reward) || reward <= 0) { alert("Награда должна быть положительным целым числом."); return; }
+    if (limit !== null && (!Number.isSafeInteger(limit) || limit <= 0)) { alert("Лимит должен быть положительным целым числом."); return; }
+    payload.code = code; payload.reward = reward; payload.max_uses = limit;
+  }
+  if (action === "delete_promo") {
+    if (!promoCode) { alert("Промокод не указан."); return; }
+    payload.code = promoCode;
+  }
   if (["add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip"].includes(action)) {
     if (!Number.isInteger(userId) || userId <= 0) { alert("Укажи корректный Telegram ID."); return; }
     payload.user_id = userId;
