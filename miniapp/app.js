@@ -50,8 +50,8 @@ const views = {
   profile: () => page("Профиль", "Управление балансом и игровым аккаунтом.", `<div class="balance-card"><div class="balance-label">Текущий баланс</div><div class="balance-number">${state.hiddenBalance ? "••••••" : `${format(state.balance)} <small>DC</small>`}</div><div class="balance-actions">${btn(state.hiddenBalance ? "Показать в топе" : "Скрыть в топе", "toggle-privacy")}</div></div><div class="section list"><button class="list-row" data-view="top">${icon("#")}<span class="row-main"><strong>Топ игроков</strong><span>Рейтинг по D-COINS</span></span><span class="row-side">›</span></button><button class="list-row" data-view="promo">${icon("⌁")}<span class="row-main"><strong>Промокод</strong><span>Активировать код</span></span><span class="row-side">›</span></button><button class="list-row" data-view="support">${icon("?")}<span class="row-main"><strong>Чат с администратором</strong><span>Доступен при разрешении</span></span><span class="row-side">›</span></button></div>`),
   more: () => page("Ещё", "Дополнительные разделы D-COINS.", `<div class="list"><button class="list-row" data-view="inventory">${icon("▦")}<span class="row-main"><strong>Инвентарь</strong><span>Бустеры и ключи кейсов</span></span><span class="row-side">›</span></button><button class="list-row" data-view="duels">${icon("⚔")}<span class="row-main"><strong>Дуэли</strong><span>Игры с другими участниками</span></span><span class="row-side">›</span></button><button class="list-row" data-view="mini-events">${icon("⚡")}<span class="row-main"><strong>Мини-ивенты</strong><span>Активности из канала</span></span><span class="row-side">›</span></button><button class="list-row" data-view="help">${icon("i")}<span class="row-main"><strong>Как играть</strong><span>Короткие правила</span></span><span class="row-side">›</span></button>${state.isAdmin ? `<button class="list-row" data-view="admin">${icon("⚙")}<span class="row-main"><strong>Админ-панель</strong><span>Управление ботом</span></span><span class="row-side">›</span></button>` : ""}</div>`),
   admin: () => page("Админ-панель", "Управление доступно только владельцу бота.", `<div class="list"><button class="list-row" data-view="admin-users">${icon("♙")}<span class="row-main"><strong>Пользователи</strong><span>Баланс, блокировки и VIP</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-economy">${icon("◈")}<span class="row-main"><strong>Экономика</strong><span>Цены Stars и шансы кейсов</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-promos">${icon("⌁")}<span class="row-main"><strong>Промокоды и раздачи</strong><span>Создание и управление</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-settings">${icon("⚙")}<span class="row-main"><strong>Настройки</strong><span>Сервисные действия</span></span><span class="row-side">›</span></button></div>`),
-  top: () => page("Топ игроков", "Баланс скрытых игроков не раскрывается.", `<div class="list">${state.top.length ? state.top.map((player, i) => `<div class="list-row">${icon(i + 1)}<span class="row-main"><strong>${player.name}</strong><span>${player.hidden && player.balance === null ? "🔒 Скрыто" : `${format(player.balance)} DC`}</span></span>${i === 0 ? '<span class="tag amber">Лидер</span>' : ""}</div>`).join("") : '<div class="notice"><b>⌁</b><span>Загружаем рейтинг…</span></div>'}</div>`),
-  promo: () => page("Промокод", "Введи код, который получил в канале или у администрации.", `<div class="modal"><h2>Активация промокода</h2><p>Код можно активировать один раз, если его лимит ещё не исчерпан.</p><div class="section"><input class="input" placeholder="Введите код" autocomplete="off" /></div><div class="modal-actions">${btn("Активировать", "promo-activate", "primary")}</div></div>`),
+  top: () => page("Топ игроков", "Баланс скрытых игроков не раскрывается.", `<div class="list">${state.top.length ? state.top.map((player, i) => `<div class="list-row">${icon(i + 1)}<span class="row-main"><strong>${escapeHtml(player.name)}</strong><span>${player.hidden && player.balance === null ? "🔒 Скрыто" : `${format(player.balance)} DC`}</span></span>${i === 0 ? '<span class="tag amber">Лидер</span>' : ""}</div>`).join("") : '<div class="notice"><b>⌁</b><span>Загружаем рейтинг…</span></div>'}</div>`),
+  promo: () => page("Промокод", "Введи код, который получил в канале или у администрации.", `<div class="modal"><h2>Активация промокода</h2><p>Код можно активировать один раз, если его лимит ещё не исчерпан.</p><div class="section"><input class="input" id="promo-code" placeholder="Введите код" autocomplete="off" maxlength="32" /></div><div class="modal-actions">${btn("Активировать", "promo-activate", "primary")}</div></div>`),
   support: () => page("Чат с администратором", "Этот раздел доступен только пользователям с разрешением.", `<div class="modal"><h2>Диалог с поддержкой</h2><p>Напиши сообщение — оно попадёт администратору в боте.</p><div class="section"><input class="input" placeholder="Сообщение" /></div><div class="modal-actions">${btn("Отправить", "support-send", "cyan")}</div></div>`),
   duels: () => page("Дуэли", "Дуэли проводятся в разрешённых чатах D-COINS.", `<div class="notice"><b>⚔</b><span>Минимальная ставка — 5 DC, максимальная — 100 000 DC. Комиссии нет.</span></div>`),
   "mini-events": () => page("Мини-ивенты", "Активные мини-ивенты публикуются в новостном канале.", `<div class="notice"><b>⚡</b><span>Когда ивент начнётся, здесь появится его карточка и кнопка участия.</span></div>`),
@@ -72,6 +72,7 @@ function boosters() {
 }
 function helpText(name) { return ({"Игры":"Ставка списывается с реального баланса.","Кейсы":"Открывай кейсы и получай награды.","Бустеры":"Выбери один бустер перед игрой.","Джекпот дня":"Билеты выдаются за проигрыши в играх.","Промокоды":"Активируй код в разделе профиля."})[name]; }
 function format(value) { return new Intl.NumberFormat("ru-RU").format(value); }
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#39;"})[char]); }
 
 function render() {
   const view = state.view;
@@ -81,10 +82,11 @@ function render() {
   document.querySelector("#screen").innerHTML = views[view] ? views[view]() : views.home();
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   if (view === "top" && !state.top.length) loadTop();
+  if (view === "jackpot") syncProfile().then(() => { if (state.view === "jackpot") render(); }).catch(() => {});
 }
 function renderGame(game) {
   const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
-  const options={slots:[["spin","Крутить барабаны"]],roulette:[["red","🔴 Красное"],["black","⚫ Чёрное"],["green","🟢 Зелёное · ×3"]],dice:[["1","1"],["2","2"],["3","3"],["4","4"],["5","5"],["6","6"]],coinflip:[["heads","🦅 Орёл"],["tails","🔵 Решка"]]}[game];
+  const options={slots:[["spin","Крутить барабаны"]],roulette:[["red","🔴 Красное"],["black","⚫ Чёрное"],["green","🟢 Зелёное · ×3"]],dice:[["1","1"],["2","2"],["3","3"],["4","4"],["5","5"],["6","6"]],coinflip:[["heads","🦅 Орёл"],["tails","🔵 Решка"]],scratch:[["reveal","Открыть скретч-карту"]],lottery:Array.from({length:25},(_,i)=>[String(i),`Билет ${i+1}`])}[game];
   if (!options) { document.querySelector("#screen").innerHTML = page(names[game], "Этот режим переносится следующим — остальные игры уже доступны в боте.", `${btn("К играм", "games")}`); return; }
   document.querySelector("#screen").innerHTML = page(names[game], "Минимальная ставка — 5 DC.", `<div class="modal"><h2>${names[game]}</h2><p>${state.booster ? `Активный бустер: ${state.booster}.` : "Бустер не выбран."}</p><div class="section"><select id="game-option" class="input">${options.map(([value,label])=>`<option value="${value}">${label}</option>`).join("")}</select></div><div class="section"><input id="game-bet" class="input" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="play-game" data-game="${game}">Начать игру</button>${btn("К играм", "games")}</div></div>`);
 }
@@ -116,13 +118,58 @@ async function api(path, options = {}) {
 async function syncProfile() {
   if (!state.initData) return;
   const data = await api("/api/me");
-  state.displayName = data.user.name;
+  state.displayName = escapeHtml(data.user.name);
   state.balance = data.balance.shown;
   state.hiddenBalance = data.balance.hidden;
   state.isAdmin = Boolean(data.is_admin);
   state.boosters = data.boosters;
   state.booster = data.active_booster ? (data.boosters.find((x) => x.id === data.active_booster)?.title || data.active_booster) : null;
 }
+function showNotice(title, message, actions = `${btn("На главную", "home", "primary")}`) {
+  document.querySelector("#screen").innerHTML = page(title, message, `<div class="modal"><div class="modal-actions">${actions}</div></div>`);
+}
+function describePrize(prize) {
+  if (!prize) return "Награда не указана.";
+  const amount = Number(prize.amount || 0);
+  if (prize.kind === "coins") return `Награда: ${format(amount)} DC.`;
+  if (prize.kind === "booster") return `Бустер: ${prize.booster || amount}.`;
+  if (prize.kind === "key") return `Ключ от кейса: ${prize.case || amount}.`;
+  if (prize.kind === "chance") return `Шанс обновлён: ${prize.chance ?? amount}.`;
+  if (prize.kind === "gift") return prize.delivery === "pending" ? "Подарок сохранён в очереди на выдачу." : "Подарок отправлен или поставлен в очередь на выдачу.";
+  if (prize.kind === "premium") return `Создана заявка на Premium №${prize.order_id}.`;
+  return `Награда: ${amount}.`;
+}
+async function openCase() {
+  const id = state.view.startsWith("case:") ? state.view.split(":")[1] : "";
+  try {
+    const data = await api("/api/case/open", { method: "POST", body: JSON.stringify({ case_id: id }) });
+    state.balance = data.balance;
+    await syncProfile();
+    showNotice("Кейс открыт!", `${({blood:"BLOOD",pantera:"PANTERA",spider_man:"SPIDER MAN"})[id] || id}: ${describePrize(data.prize)} Баланс: ${format(data.balance)} DC.`, `${btn("Открыть ещё", `case:${id}`, "primary")}${btn("Все кейсы", "cases")}`);
+  } catch (error) { alert(error.message || "Не удалось открыть кейс."); }
+}
+async function openPandora() {
+  try {
+    const data = await api("/api/pandora/open", { method: "POST" });
+    state.balance = data.balance;
+    state.pandoraRemaining = Number(data.remaining || 0);
+    await syncProfile();
+    showNotice("Ящик Пандоры открыт!", `${describePrize(data.prize)} Баланс: ${format(data.balance)} DC.`, btn("К кейсам", "cases", "primary"));
+  } catch (error) { alert(error.message || "Не удалось открыть ящик Пандоры."); }
+}
+async function redeemPromo() {
+  const input = document.querySelector("#screen input");
+  const code = input?.value?.trim();
+  if (!code) { alert("Введи промокод."); return; }
+  try {
+    const data = await api("/api/promo/redeem", { method: "POST", body: JSON.stringify({ code }) });
+    state.balance = data.balance;
+    await syncProfile();
+    const reward = data.reward_type === "coins" ? `${format(Number(data.reward || 0))} DC` : data.reward_type === "case" ? `${data.case_count} кейс(а): ${data.case_id}` : String(data.reward || data.reward_type);
+    showNotice("Промокод активирован", `Код ${data.code} принят. Награда: ${reward}. Баланс: ${format(data.balance)} DC.`, btn("В профиль", "profile", "primary"));
+  } catch (error) { alert(error.message || "Не удалось активировать промокод."); }
+}
+
 async function selectBooster(boosterId, title) {
   try {
     if (state.initData) await api("/api/booster/select", { method: "POST", body: JSON.stringify({ booster_id: boosterId }) });
