@@ -9475,6 +9475,152 @@ async def miniapp_create_invoice(request: web.Request) -> web.Response:
     return web.json_response({"invoice_link": link, "amount": dc_amount, "stars": stars})
 
 
+async def miniapp_duels(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    now = time.time()
+    items = []
+    for duel_id, duel in list(active_duels.items()):
+        if duel.get("status") != "open" or duel.get("expires", 0) <= now:
+            continue
+        items.append({
+            "id": duel_id,
+            "challenger_name": duel["challenger_name"],
+            "bet": int(duel["bet"]),
+            "expires_in": max(0, int(duel["expires"] - now)),
+            "mine": int(duel["challenger_id"]) == user["id"],
+        })
+    items.sort(key=lambda item: item["expires_in"])
+    return web.json_response({"duels": items[:50], "my_active": user["id"] in duel_by_user})
+
+
+async def miniapp_duel_create(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    uid = user["id"]
+    if await db.is_banned(uid):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        bet = int((await request.json())["bet"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a whole-number bet")
+    if not DUEL_MIN_BET <= bet <= DUEL_MAX_BET:
+        raise web.HTTPBadRequest(text=f"Bet must be between {DUEL_MIN_BET} and {DUEL_MAX_BET} DC")
+    if uid in duel_by_user:
+        raise web.HTTPConflict(text="You already have an active duel")
+    if uid in duel_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {DUEL_COOLDOWN} seconds before creating another duel")
+    balance, _ = await db.get_coins(uid)
+    if balance < bet:
+        raise web.HTTPBadRequest(text=f"Insufficient DC. Real balance: {balance}")
+    duel_id = f"{uid:x}{random.getrandbits(32):08x}"
+    while duel_id in active_duels:
+        duel_id = f"{uid:x}{random.getrandbits(32):08x}"
+    active_duels[duel_id] = {
+        "challenger_id": uid,
+        "challenger_name": user["name"],
+        "opponent_id": None,
+        "target_id": None,
+        "target_name": None,
+        "bet": bet,
+        "chat_id": MAIN_CHAT_ID,
+        "message_id": None,
+        "expires": time.time() + DUEL_TIMEOUT,
+        "status": "open",
+        "miniapp": True,
+    }
+    duel_by_user[uid] = duel_id
+    duel_cooldowns[uid] = True
+    return web.json_response({"ok": True, "duel_id": duel_id, "expires_in": DUEL_TIMEOUT})
+
+
+async def miniapp_duel_cancel(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    try:
+        duel_id = str((await request.json())["duel_id"])
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid duel")
+    duel = active_duels.get(duel_id)
+    if not duel or duel.get("status") != "open":
+        raise web.HTTPConflict(text="Duel is already closed")
+    if duel["challenger_id"] != user["id"]:
+        raise web.HTTPForbidden(text="Only the creator can cancel this duel")
+    release_duel(duel_id)
+    return web.json_response({"ok": True})
+
+
+async def miniapp_duel_accept(request: web.Request) -> web.Response:
+    user = await miniapp_authorize(request)
+    opponent_id = user["id"]
+    if await db.is_banned(opponent_id):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        duel_id = str((await request.json())["duel_id"])
+    except (KeyError, TypeError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Invalid duel")
+    duel = active_duels.get(duel_id)
+    if not duel or duel.get("status") != "open" or duel.get("expires", 0) <= time.time():
+        raise web.HTTPConflict(text="Duel is already closed or expired")
+    challenger_id = int(duel["challenger_id"])
+    if opponent_id == challenger_id:
+        raise web.HTTPBadRequest(text="You cannot accept your own duel")
+    if opponent_id in duel_by_user:
+        raise web.HTTPConflict(text="You already have an active duel")
+    if opponent_id in duel_cooldowns:
+        raise web.HTTPTooManyRequests(text=f"Wait {DUEL_COOLDOWN} seconds before accepting a duel")
+    if await db.is_banned(challenger_id):
+        release_duel(duel_id)
+        raise web.HTTPConflict(text="Duel creator is blocked")
+    duel["status"] = "processing"
+    duel["opponent_id"] = opponent_id
+    duel_by_user[opponent_id] = duel_id
+    opponent_name = user["name"]
+    winner_id = random.choice((challenger_id, opponent_id))
+    bet = int(duel["bet"])
+    try:
+        settled, challenger_balance, opponent_balance = await db.settle_duel(challenger_id, opponent_id, bet, winner_id)
+    except Exception:
+        duel["status"] = "open"
+        duel["opponent_id"] = None
+        duel_by_user.pop(opponent_id, None)
+        logger.exception("Mini App duel settlement failed")
+        raise web.HTTPBadGateway(text="Could not settle this duel")
+    if not settled:
+        duel["status"] = "open"
+        duel["opponent_id"] = None
+        duel_by_user.pop(opponent_id, None)
+        if challenger_balance < bet:
+            release_duel(duel_id)
+            raise web.HTTPConflict(text="Duel creator no longer has enough DC")
+        raise web.HTTPBadRequest(text=f"Insufficient DC. Real balance: {opponent_balance}")
+    duel_cooldowns[challenger_id] = True
+    duel_cooldowns[opponent_id] = True
+    release_duel(duel_id)
+    challenger_name = duel["challenger_name"]
+    for participant, participant_name in ((challenger_id, challenger_name), (opponent_id, opponent_name)):
+        await school_event.record(
+            participant,
+            participant_name,
+            f"duel:{duel_id}",
+            {"duels": 1, "duelwin": int(participant == winner_id), "games": 1, "gamewin": int(participant == winner_id), "bets": bet},
+        )
+    winner_name = challenger_name if winner_id == challenger_id else opponent_name
+    loser_name = opponent_name if winner_id == challenger_id else challenger_name
+    result_text = f"⚔️ Дуэль завершена!\n\n{challenger_name} VS {opponent_name}\nСтавка каждого: {bet:,} DC\n🏆 Победитель: {winner_name}\n💰 Выигрыш: {bet * 2:,} DC\n{loser_name} проиграл ставку.".replace(",", " ")
+    bot: Bot = request.app["bot"]
+    for participant in (challenger_id, opponent_id):
+        try:
+            await bot.send_message(participant, result_text)
+        except Exception:
+            logger.info("Could not notify duel participant %s", participant)
+    return web.json_response({
+        "ok": True,
+        "winner_id": winner_id,
+        "winner_name": winner_name,
+        "prize": bet * 2,
+        "balance": await db.get_display_balance(opponent_id),
+        "result": result_text,
+    })
+
+
 async def miniapp_mini_events(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     async with connect(db.path) as connection:
@@ -9972,6 +10118,10 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/api/jackpot", miniapp_jackpot)
     app.router.add_post("/api/transfer", miniapp_transfer)
     app.router.add_post("/api/bonus", miniapp_bonus)
+    app.router.add_get("/api/duels", miniapp_duels)
+    app.router.add_post("/api/duels/create", miniapp_duel_create)
+    app.router.add_post("/api/duels/cancel", miniapp_duel_cancel)
+    app.router.add_post("/api/duels/accept", miniapp_duel_accept)
     app.router.add_get("/api/mini-events", miniapp_mini_events)
     app.router.add_post("/api/mini-events/join", miniapp_mini_event_join)
     app.router.add_post("/api/support/send", miniapp_support_send)
