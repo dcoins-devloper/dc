@@ -62,7 +62,7 @@ const views = {
   admin: () => page("Админ-панель", "Управление доступно только владельцу бота.", `<div class="list"><button class="list-row" data-view="admin-users">${icon("♙")}<span class="row-main"><strong>Пользователи</strong><span>Баланс, блокировки и VIP</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-economy">${icon("◈")}<span class="row-main"><strong>Экономика</strong><span>Цены Stars и шансы кейсов</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-promos">${icon("⌁")}<span class="row-main"><strong>Промокоды и раздачи</strong><span>Создание и управление</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-settings">${icon("⚙")}<span class="row-main"><strong>Настройки</strong><span>Сервисные действия</span></span><span class="row-side">›</span></button></div>`),
   top: () => page("Топ игроков", "Баланс скрытых игроков не раскрывается.", `<div class="list">${state.top.length ? state.top.map((player, i) => `<div class="list-row">${icon(i + 1)}<span class="row-main"><strong>${escapeHtml(player.name)}</strong><span>${player.hidden && player.balance === null ? "🔒 Скрыто" : `${format(player.balance)} DC`}</span></span>${i === 0 ? '<span class="tag amber">Лидер</span>' : ""}</div>`).join("") : '<div class="notice"><b>⌁</b><span>Загружаем рейтинг…</span></div>'}</div>`),
   promo: () => page("Промокод", "Введи код, который получил в канале или у администрации.", `<div class="modal"><h2>Активация промокода</h2><p>Код можно активировать один раз, если его лимит ещё не исчерпан.</p><div class="section"><input class="input" id="promo-code" placeholder="Введите код" autocomplete="off" maxlength="32" /></div><div class="modal-actions">${btn("Активировать", "promo-activate", "primary")}</div></div>`),
-  support: () => page("Чат с администратором", "Этот раздел доступен только пользователям с разрешением.", `<div class="modal"><h2>Диалог с поддержкой</h2><p>Напиши сообщение — оно попадёт администратору в боте.</p><div class="section"><input class="input" placeholder="Сообщение" /></div><div class="modal-actions">${btn("Отправить", "support-send", "cyan")}</div></div>`),
+  support: () => page("Чат с администратором", state.supportAccess ? "Напиши сообщение — оно попадёт администратору в боте." : "Для доступа к диалогу требуется разрешение администрации.", state.supportAccess ? `<div class="modal"><h2>Диалог с поддержкой</h2><p>Не отправляй коды входа Telegram, пароль 2FA или строку сессии.</p><div class="section"><textarea class="input" id="support-message" rows="4" maxlength="2000" placeholder="Напиши сообщение..."></textarea></div><div class="modal-actions"><button class="button primary" data-action="support-send">Отправить</button><button class="button secondary" data-action="support-close">Закрыть диалог</button></div></div>` : `<div class="notice"><b>i</b><span>Доступ пока не выдан. Обратись к администратору через бота.</span></div>`),
   duels: () => page("Дуэли", "Дуэли проводятся в разрешённых чатах D-COINS.", `<div class="notice"><b>⚔</b><span>Минимальная ставка — 5 DC, максимальная — 100 000 DC. Комиссии нет.</span></div>`),
   "mini-events": () => page("Мини-ивенты", "Активные мини-ивенты публикуются в новостном канале.", `<div class="notice"><b>⚡</b><span>Когда ивент начнётся, здесь появится его карточка и кнопка участия.</span></div>`),
   help: () => page("Как играть", "Короткие правила без лишнего.", `<div class="list">${["Игры","Кейсы","Бустеры","Джекпот дня","Промокоды"].map((x,i)=>`<div class="list-row">${icon(i+1)}<span class="row-main"><strong>${x}</strong><span>${helpText(x)}</span></span></div>`).join("")}</div>`),
@@ -121,8 +121,10 @@ document.addEventListener("click", (event) => {
   if (target.dataset.view === "case-open") { openCase(); return; }
   if (target.dataset.view === "pandora-open") { openPandora(); return; }
   if (target.dataset.view === "promo-activate") { redeemPromo(); return; }
-  if (target.dataset.view === "support-send") { alert("Чат поддержки пока не подключён к Mini App API. Напиши через бота."); return; }
+
   if (target.dataset.action === "transfer-send") { transferCoins(); return; }
+  if (target.dataset.action === "support-send") { sendSupportMessage(); return; }
+  if (target.dataset.action === "support-close") { closeSupportChat(); return; }
   if (target.dataset.action === "daily-bonus") { claimDailyBonus(); return; }
   if (target.dataset.action === "mines-start") { startMines(); return; }
   if (target.dataset.action === "crash-mode") { state.crashMode = target.dataset.mode; document.querySelectorAll("[data-action='crash-mode']").forEach(node => node.classList.toggle("primary", node.dataset.mode === state.crashMode)); return; }
@@ -267,6 +269,24 @@ async function minesAction(action, cell) {
     if (data.finished) await syncProfile();
     render();
   } catch (error) { alert(error.message || "Не удалось выполнить ход."); }
+}
+
+async function sendSupportMessage() {
+  const field = document.querySelector("#support-message");
+  const message = field?.value?.trim();
+  if (!message) { alert("Напиши сообщение."); return; }
+  if (message.length > 2000) { alert("Сообщение слишком длинное."); return; }
+  try {
+    await api("/api/support/send", { method: "POST", body: JSON.stringify({ message }) });
+    field.value = "";
+    showNotice("Сообщение отправлено", "Администратор получил твоё сообщение. Ответ придёт в Telegram.", btn("Назад", "support", "primary"));
+  } catch (error) { alert(error.message || "Не удалось отправить сообщение."); }
+}
+async function closeSupportChat() {
+  try {
+    await api("/api/support/close", { method: "POST", body: JSON.stringify({}) });
+    showNotice("Диалог закрыт", "Диалог с администратором закрыт.", btn("В профиль", "profile", "primary"));
+  } catch (error) { alert(error.message || "Не удалось закрыть диалог."); }
 }
 
 async function purchaseStars(amount) {
