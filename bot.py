@@ -9851,7 +9851,7 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
         user_id = int(payload.get("user_id", 0))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise web.HTTPBadRequest(text="Invalid admin request")
-    if action in {"add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban"} and user_id <= 0:
+    if action in {"add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip"} and user_id <= 0:
         raise web.HTTPBadRequest(text="A valid user ID is required")
     if action in {"add_coins", "remove_coins"}:
         try:
@@ -9875,6 +9875,10 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
         await db.ban_user(user_id, str(payload.get("reason", ""))[:300])
     elif action == "unban":
         await db.unban_user(user_id)
+    elif action == "vip":
+        await db.set_vip(user_id)
+    elif action == "unvip":
+        await db.remove_vip(user_id)
     elif action in {"deliver_pending_gift", "delete_pending_gift"}:
         try:
             gift_db_id = int(payload["item_id"])
