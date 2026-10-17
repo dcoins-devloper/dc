@@ -250,7 +250,7 @@ function renderMines() {
   const result = game.finished
     ? `<div class="notice"><b>${game.won ? "✓" : "×"}</b><span>${game.won ? `Выигрыш: ${format(game.prize || 0)} DC` : `Ставка проиграна${game.refund ? `. Возврат: ${format(game.refund)} DC` : ""}`}. Баланс: ${format(game.balance)} DC.</span></div>`
     : `<div class="notice"><b>💰</b><span>Открыто безопасных клеток: ${game.safe_opened}. Потенциальный выигрыш: ${format(game.current_prize)} DC.</span></div>`;
-  document.querySelector("#screen").innerHTML = page("Мины", `Ставка: ${format(game.bet)} DC`, `<div class="mines-grid">${cells}</div><div class="section">${result}</div><div class="modal-actions">${game.finished ? `<button class="button primary" data-view="play:mines">Играть ещё</button>${btn("Все игры", "games")}` : `<button class="button primary" data-action="mines-cashout" ${game.safe_opened < 1 ? "disabled" : ""}>Забрать ${format(game.current_prize)} DC</button><button class="button secondary" data-view="games">Выйти из игры</button>`}</div>`);
+  document.querySelector("#screen").innerHTML = page("Мины", `Ставка: ${format(game.bet)} DC`, `<div class="mines-grid">${cells}</div><div class="section">${result}</div><div class="modal-actions">${game.finished ? `<button class="button primary" data-view="play:mines">Играть ещё</button>${btn("Все игры", "games")}` : `<button class="button primary" data-action="mines-cashout" ${game.safe_opened < 1 ? "disabled" : ""}>Забрать ${format(game.current_prize)} DC</button>`}</div>`);
 }
 async function startMines() {
   const bet = Number(document.querySelector("#game-bet")?.value);
