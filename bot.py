@@ -9253,6 +9253,57 @@ async def miniapp_top(request: web.Request) -> web.Response:
     )
 
 
+async def miniapp_transfer(request: web.Request) -> web.Response:
+    sender = await miniapp_authorize(request)
+    if await db.is_banned(sender["id"]):
+        raise web.HTTPForbidden(text="Account is blocked")
+    try:
+        payload = await request.json()
+        recipient_text = str(payload["recipient"]).strip()
+        amount = int(payload["amount"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise web.HTTPBadRequest(text="Enter a recipient and a whole-number amount")
+    if not 1 <= amount <= 9_000_000_000_000_000:
+        raise web.HTTPBadRequest(text="Invalid transfer amount")
+    if recipient_text.startswith("@"):
+        recipient = await db.find_user_by_username(recipient_text)
+        if not recipient:
+            raise web.HTTPNotFound(text="Username not found. The recipient must have used the bot or written in the main chat.")
+        recipient_id, recipient_name = int(recipient[0]), str(recipient[1])
+    else:
+        try:
+            recipient_id = int(recipient_text)
+        except ValueError:
+            raise web.HTTPBadRequest(text="Use a Telegram numeric ID or @username")
+        if recipient_id <= 0:
+            raise web.HTTPBadRequest(text="Invalid recipient")
+        recipient_name = await db.get_user_name(recipient_id)
+        async with connect(db.path) as connection:
+            async with connection.execute("SELECT 1 FROM user_stats WHERE user_id=? LIMIT 1", (recipient_id,)) as cursor:
+                known = await cursor.fetchone()
+        if not known:
+            raise web.HTTPNotFound(text="Recipient not found. Ask them to use the bot or write in the main chat.")
+    if recipient_id == sender["id"]:
+        raise web.HTTPBadRequest(text="You cannot transfer DC to yourself")
+    if await db.is_banned(recipient_id):
+        raise web.HTTPBadRequest(text="Recipient account is blocked")
+    ok, sender_balance, recipient_balance = await db.transfer_coins(sender["id"], recipient_id, amount)
+    if not ok:
+        raise web.HTTPBadRequest(text="Insufficient balance or invalid transfer")
+    bot: Bot = request.app["bot"]
+    try:
+        await bot.send_message(recipient_id, f"🪙 Ты получил {amount:,} DC от {sender['name']}.".replace(",", " "))
+    except Exception:
+        logger.info("Could not notify transfer recipient %s", recipient_id)
+    return web.json_response({
+        "ok": True,
+        "amount": amount,
+        "recipient": recipient_name,
+        "balance": await db.get_display_balance(sender["id"]),
+        "recipient_balance": recipient_balance,
+    })
+
+
 async def miniapp_jackpot(request: web.Request) -> web.Response:
     user = await miniapp_authorize(request)
     summary = await db.jackpot_summary(user["id"])
@@ -9584,6 +9635,7 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/api/me", miniapp_me)
     app.router.add_get("/api/top", miniapp_top)
     app.router.add_get("/api/jackpot", miniapp_jackpot)
+    app.router.add_post("/api/transfer", miniapp_transfer)
     app.router.add_post("/api/booster/select", miniapp_set_booster)
     app.router.add_post("/api/privacy", miniapp_set_privacy)
     app.router.add_post("/api/game/play", miniapp_play_game)
