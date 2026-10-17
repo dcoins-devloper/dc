@@ -9335,6 +9335,7 @@ async def miniapp_crash_action(request: web.Request) -> web.Response:
             active_games.pop(uid, None)
             if game.get("booster") == "insurance":
                 await db.add_coins(uid, game["bet"] // 4)
+            await school_event.record(uid, user["name"], f"crash:{token}:loss", {"games": 1, "gamewin": 0, "bets": game["bet"]})
             return web.json_response({**miniapp_crash_payload(game, True), "won": False, "prize": 0, "balance": await db.get_display_balance(uid)})
         game["step"] = next_step
         return web.json_response({**miniapp_crash_payload(game), "won": None, "balance": await db.get_display_balance(uid)})
@@ -9347,6 +9348,7 @@ async def miniapp_crash_action(request: web.Request) -> web.Response:
         elif game.get("booster") == "bonus25":
             prize = int(prize * 1.25)
         await db.add_coins(uid, prize)
+        await school_event.record(uid, user["name"], f"crash:{token}:win", {"games": 1, "gamewin": 1, "bets": game["bet"]})
         return web.json_response({**miniapp_crash_payload(game, True), "won": True, "prize": prize, "balance": await db.get_display_balance(uid)})
     raise web.HTTPBadRequest(text="Unknown Crash action")
 
