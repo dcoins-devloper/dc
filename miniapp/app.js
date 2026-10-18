@@ -19,6 +19,7 @@ const state = {
   duels: [],
   duelsLoaded: false,
   top: [],
+  stats: null,
   initData: "",
   activeGame: null,
   minesGame: null,
@@ -26,6 +27,8 @@ const state = {
 };
 
 const icon = (value) => `<span class="row-icon">${value}</span>`;
+const CASES = { blood: { title: "BLOOD" }, pantera: { title: "PANTERA" }, spider_man: { title: "SPIDER MAN" } };
+const BOOSTERS = { double: ["×2"], insurance: ["Страховка"], free: ["Бесплатная игра"], bonus25: ["+25%"], repeat: ["Повтор"], roulette: ["Повтор рулетки"] };
 const btn = (label, view, style = "secondary") => `<button class="button ${style}" type="button" data-view="${view}">${label}</button>`;
 const card = (iconText, title, text, view) => `<button class="game-card" type="button" data-view="${view}"><span class="game-icon">${iconText}</span><h3>${title}</h3><p>${text}</p></button>`;
 
@@ -63,8 +66,13 @@ const views = {
   transfer: () => page("Перевод D-COINS", "Переводи DC игрокам, которых бот знает по @username или Telegram ID.", `<div class="modal"><h2>Новый перевод</h2><div class="section"><input class="input" id="transfer-recipient" placeholder="@username или Telegram ID" autocomplete="off" maxlength="64" /></div><div class="section"><input class="input" id="transfer-amount" type="number" min="1" step="1" placeholder="Сумма в DC" /></div><p class="lead">Твой баланс: ${format(state.balance)} DC. Перевод нельзя отправить самому себе; сумма проверяется сервером.</p><div class="modal-actions"><button class="button primary" data-action="transfer-send">Перевести</button>${btn("Назад в профиль","profile")}</div></div>`),
   profile: () => page("Профиль", "Управление балансом и игровым аккаунтом.", `<div class="balance-card"><div class="balance-label">Текущий баланс</div><div class="balance-number">${state.hiddenBalance ? "••••••" : `${format(state.balance)} <small>DC</small>`}</div><div class="balance-actions">${btn(state.hiddenBalance ? "Показать в топе" : "Скрыть в топе", "toggle-privacy")}</div></div><div class="section list"><button class="list-row" data-view="top">${icon("#")}<span class="row-main"><strong>Топ игроков</strong><span>Рейтинг по D-COINS</span></span><span class="row-side">›</span></button><button class="list-row" data-view="transfer">${icon("⇄")}<span class="row-main"><strong>Перевести DC</strong><span>Отправить монеты другому игроку</span></span><span class="row-side">›</span></button><button class="list-row" data-action="daily-bonus">${icon("🎁")}<span class="row-main"><strong>Ежедневный бонус</strong><span>Получить монеты и шанс, если доступно</span></span><span class="row-side">›</span></button><button class="list-row" data-view="promo">${icon("⌁")}<span class="row-main"><strong>Промокод</strong><span>Активировать код</span></span><span class="row-side">›</span></button><button class="list-row" data-view="support">${icon("?")}<span class="row-main"><strong>Чат с администратором</strong><span>Доступен при разрешении</span></span><span class="row-side">›</span></button></div>`),
   more: () => page("Ещё", "Дополнительные разделы D-COINS.", `<div class="list"><button class="list-row" data-view="inventory">${icon("▦")}<span class="row-main"><strong>Инвентарь</strong><span>Бустеры и ключи кейсов</span></span><span class="row-side">›</span></button><button class="list-row" data-view="duels">${icon("⚔")}<span class="row-main"><strong>Дуэли</strong><span>Игры с другими участниками</span></span><span class="row-side">›</span></button><button class="list-row" data-view="mini-events">${icon("⚡")}<span class="row-main"><strong>Мини-ивенты</strong><span>Активности из канала</span></span><span class="row-side">›</span></button><button class="list-row" data-view="help">${icon("i")}<span class="row-main"><strong>Как играть</strong><span>Короткие правила</span></span><span class="row-side">›</span></button>${state.isAdmin ? `<button class="list-row" data-view="admin">${icon("⚙")}<span class="row-main"><strong>Админ-панель</strong><span>Управление ботом</span></span><span class="row-side">›</span></button>` : ""}</div>`),
-  admin: () => page("Админ-панель", "Управление доступно только владельцу бота.", `<div class="list"><button class="list-row" data-view="admin-users">${icon("♙")}<span class="row-main"><strong>Пользователи</strong><span>Баланс, блокировки и VIP</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-economy">${icon("◈")}<span class="row-main"><strong>Экономика</strong><span>Цены Stars и шансы кейсов</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-promos">${icon("⌁")}<span class="row-main"><strong>Промокоды и раздачи</strong><span>Создание и управление</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-settings">${icon("⚙")}<span class="row-main"><strong>Настройки</strong><span>Сервисные действия</span></span><span class="row-side">›</span></button></div>`),
   top: () => page("Топ игроков", "Баланс скрытых игроков не раскрывается.", `<div class="list">${state.top.length ? state.top.map((player, i) => `<div class="list-row">${icon(i + 1)}<span class="row-main"><strong>${escapeHtml(player.name)}</strong><span>${player.hidden && player.balance === null ? "🔒 Скрыто" : `${format(player.balance)} DC`}</span></span>${i === 0 ? '<span class="tag amber">Лидер</span>' : ""}</div>`).join("") : '<div class="notice"><b>⌁</b><span>Загружаем рейтинг…</span></div>'}</div>`),
+  stats: () => {
+    const personal = state.stats?.personal;
+    const rankings = state.stats?.rankings;
+    const rows = (title, items, label) => `<section class="section"><div class="section-title"><h2>${title}</h2></div><div class="list">${items?.length ? items.map((item, index) => `<div class="list-row">${icon(index + 1)}<span class="row-main"><strong>${escapeHtml(item.name)}</strong><span>${label(item)}</span></span></div>`).join("") : '<div class="notice"><b>⌁</b><span>Пока нет данных.</span></div>'}</div></section>`;
+    return page("Статистика и рейтинги", "Все показатели, которые раньше открывались командами /stats, /top, /winstop и /daytop.", personal ? `<div class="stat-row"><div class="stat"><b>${Number(personal.chance).toFixed(3)}</b><small>Шанс</small></div><div class="stat"><b>${format(personal.messages)}</b><small>Сообщений</small></div><div class="stat"><b>${format(personal.wins)}</b><small>Побед</small></div></div>${rows("Топ по шансу", rankings.chance, item => `${Number(item.chance).toFixed(3)} балл. · ${format(item.messages)} сообщ.`)}${rows("Топ победителей", rankings.wins, item => `${format(item.wins)} побед`)}${rows("Активные сегодня", rankings.daily, item => `${format(item.messages)} сообщений`)}` : '<div class="notice"><b>⌁</b><span>Загружаем статистику…</span></div>');
+  },
   promo: () => page("Промокод", "Введи код, который получил в канале или у администрации.", `<div class="modal"><h2>Активация промокода</h2><p>Код можно активировать один раз, если его лимит ещё не исчерпан.</p><div class="section"><input class="input" id="promo-code" placeholder="Введите код" autocomplete="off" maxlength="32" /></div><div class="modal-actions">${btn("Активировать", "promo-activate", "primary")}</div></div>`),
   support: () => page("Чат с администратором", state.supportAccess ? "Напиши сообщение — оно попадёт администратору в боте." : "Для доступа к диалогу требуется разрешение администрации.", state.supportAccess ? `<div class="modal"><h2>Диалог с поддержкой</h2><p>Не отправляй коды входа Telegram, пароль 2FA или строку сессии.</p><div class="section"><textarea class="input" id="support-message" rows="4" maxlength="2000" placeholder="Напиши сообщение..."></textarea></div><div class="modal-actions"><button class="button primary" data-action="support-send">Отправить</button><button class="button secondary" data-action="support-close">Закрыть диалог</button></div></div>` : `<div class="notice"><b>i</b><span>Доступ пока не выдан. Обратись к администратору через бота.</span></div>`),
   duels: () => page("Дуэли", "Создавай вызов или принимай открытую дуэль. Победитель получает банк.", `<div class="modal"><h2>Создать дуэль</h2><p>Ставка каждого игрока: от 5 до 100 000 DC. Победитель получает сумму двух ставок.</p><div class="section"><input class="input" id="duel-bet" type="number" min="5" max="100000" step="1" placeholder="Твоя ставка" /></div><div class="modal-actions"><button class="button primary" data-action="duel-create">Создать вызов</button><button class="button secondary" data-action="duel-refresh">Обновить список</button></div></div><div class="section-title"><h2>Открытые дуэли</h2></div><div class="list">${state.duels.map(d => `<div class="list-row">${icon("⚔")}<span class="row-main"><strong>${escapeHtml(d.challenger_name)}</strong><span>Ставка ${format(d.bet)} DC · осталось ${formatDuration(d.expires_in)}</span></span>${d.mine ? `<button class="button secondary" data-action="duel-cancel" data-duel-id="${d.id}">Отменить</button>` : `<button class="button primary" data-action="duel-accept" data-duel-id="${d.id}" ${state.duels.some(x => x.mine) ? "disabled" : ""}>Принять</button>`}</div>`).join("") || '<div class="notice"><b>⚔</b><span>Открытых дуэлей пока нет.</span></div>'}</div>`),
@@ -79,6 +87,25 @@ const views = {
 };
 
 function page(title, lead, content) { return `<div class="page-head"><div class="eyebrow">D-COINS</div><h1>${title}</h1><p class="lead">${lead}</p></div>${content}`; }
+
+views.admin = () => page("Админ-панель", "Управление ботом.", `<div class="stat-row"><div class="stat"><b>${state.adminOverview?.players ?? "—"}</b><small>Игроков</small></div><div class="stat"><b>${state.adminOverview?.star_balance ?? "—"}</b><small>Stars</small></div><div class="stat"><b>${state.adminOverview?.banned_users?.length ?? "—"}</b><small>Банов</small></div></div><div class="list"><button class="list-row" data-view="admin-users">${icon("♙")}<span class="row-main"><strong>Пользователи</strong><span>Баланс, счётчики, бан, VIP, подарок</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-promos">${icon("⌁")}<span class="row-main"><strong>Промокоды</strong><span>DC, ключи кейсов, бустеры</span></span><span class="row-side">›</span></button><button class="list-row" data-view="admin-settings">${icon("⚙")}<span class="row-main"><strong>Очереди и раздачи</strong><span>Подарки, Premium, массовые операции</span></span><span class="row-side">›</span></button></div><section class="section"><div class="modal"><h2>Золотой час</h2><div class="modal-actions"><button class="button primary" data-action="golden-start">Запустить</button><button class="button secondary" data-action="golden-stop">Остановить</button></div></div></section><section class="section"><div class="modal"><h2>Мини-ивент в канале</h2><select id="mini-event-kind" class="input"><option value="first">Первый участник</option><option value="first_n">Первые N участников</option><option value="ticket">Счастливый билет</option></select><input id="mini-event-reward" class="input" type="number" min="1" placeholder="Награда DC" /><input id="mini-event-duration" class="input" type="number" min="10" max="3600" value="300" placeholder="Секунды" /><input id="mini-event-count" class="input" type="number" min="1" max="100" value="10" placeholder="Количество участников (N)" /><div class="modal-actions"><button class="button primary" data-action="mini-event-create">Опубликовать</button><button class="button danger" data-action="mini-event-cancel">Отменить активный</button></div></div></section><section class="section"><div class="modal"><h2>Массовая раздача</h2><input id="broadcast-amount" class="input" type="number" min="1" placeholder="Количество" /><select id="broadcast-kind" class="input"><option value="coins">D-COINS</option><option value="case">Ключи кейса</option><option value="booster">Бустеры</option></select><select id="broadcast-item" class="input">${Object.entries(CASES).map(([id,c])=>`<option value="case:${id}">Кейс ${escapeHtml(c.title)}</option>`).join("")}${Object.entries(BOOSTERS).map(([id,b])=>`<option value="booster:${id}">Бустер ${escapeHtml(b[0])}</option>`).join("")}</select><div class="modal-actions"><button class="button primary" data-action="broadcast-send">Раздать всем</button><button class="button danger" data-action="reset-all">Сбросить игровые данные</button></div></div></section>`);
+
+const renderAdminHome = views.admin;
+views.admin = () => `${renderAdminHome()}<button class="button secondary wide" data-view="admin-economy">Экономика · цены и шансы</button>`;
+
+views["admin-economy"] = () => page("Экономика", "Цены сохраняются в настройках бота и применяются сразу.", `<div class="section-title"><h2>Покупка DC за Stars</h2></div><div class="list">${Object.entries(state.adminOverview?.star_packages||{}).map(([dc,stars])=>`<div class="list-row"><span class="row-main"><strong>${format(dc)} DC</strong><span>${stars} Stars</span></span><input class="input compact" id="star-price-${dc}" type="number" min="1" value="${stars}" /><button class="button primary" data-action="save-star-price" data-dc="${dc}">Сохранить</button></div>`).join("")}</div><div class="section-title"><h2>Обменные цены</h2></div><div class="list">${Object.entries(state.adminOverview?.exchange_prices||{}).map(([key,value])=>`<div class="list-row"><span class="row-main"><strong>${escapeHtml(key)}</strong></span><input class="input compact" id="exchange-price-${key}" type="number" min="1" value="${value}" /><button class="button primary" data-action="save-exchange-price" data-key="${key}">Сохранить</button></div>`).join("")}</div><div class="notice"><b>i</b><span>Обмен в пользовательском меню остаётся отключённой настройкой бота.</span></div><div class="section-title"><h2>Шансы наград кейса</h2></div><div class="modal"><select id="chance-case" class="input">${Object.keys(state.adminOverview?.case_chances||{}).map(id=>`<option value="${id}">${escapeHtml(CASES[id]?.title||id)}</option>`).join("")}</select><input id="chance-index" class="input" type="number" min="0" placeholder="Номер награды (с нуля)" /><input id="chance-value" class="input" type="number" min="0" step="0.01" placeholder="Новый вес" /><button class="button primary" data-action="save-case-chance">Сохранить шанс</button></div>`);
+
+views["admin-settings"] = () => page("Очереди и публикации", "Подарки, Premium и сообщения в каналы.", `<div class="section-title"><h2>Подарки в очереди</h2></div><div class="list">${(state.adminOverview?.pending_gift_items||[]).map(item=>`<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${escapeHtml(item.gift_id)} · ${escapeHtml(item.reason||"")}</span></span><button class="button primary" data-action="admin-do" data-admin-action="deliver_pending_gift" data-item-id="${item.id}">Выдать</button><button class="button danger" data-action="admin-do" data-admin-action="delete_pending_gift" data-item-id="${item.id}">Удалить</button></div>`).join("")||'<div class="notice"><b>✓</b><span>Очередь подарков пуста.</span></div>'}</div><div class="section-title"><h2>Premium</h2></div><div class="list">${(state.adminOverview?.premium_order_items||[]).map(item=>`<div class="list-row"><span class="row-main"><strong>#${item.id} · ${escapeHtml(item.user_name)} (${item.user_id})</strong><span>${format(item.cost)} DC</span></span><button class="button primary" data-action="admin-do" data-admin-action="premium_done" data-item-id="${item.id}">Выдан</button><button class="button secondary" data-action="admin-do" data-admin-action="premium_refund" data-item-id="${item.id}">Возврат</button></div>`).join("")||'<div class="notice"><b>✓</b><span>Заявок нет.</span></div>'}</div><div class="section"><div class="modal"><h2>Публикация</h2><textarea class="input" id="admin-message" rows="4" maxlength="4000" placeholder="Текст публикации"></textarea><div class="modal-actions"><button class="button primary" data-action="publish-channel">В канал</button><button class="button secondary" data-action="send-group">В основную группу</button></div></div></div>`);
+
+const renderAdminSettings = views["admin-settings"];
+views["admin-settings"] = () => `${renderAdminSettings()}<button class="button secondary wide" data-action="admin-topup-stars">Пополнить Stars бота</button><section class="section"><div class="section-title"><h2>Поддержка</h2></div><div class="list">${(state.adminOverview?.support_users||[]).map(u=>`<div class="modal"><strong>${escapeHtml(u.name)} · ${u.user_id}</strong><p>${u.active?"Диалог открыт":"Диалог закрыт"}</p><textarea class="input" id="support-reply-${u.user_id}" rows="2" maxlength="2000" placeholder="Ответ пользователю"></textarea><div class="modal-actions"><button class="button primary" data-action="support-reply" data-user-id="${u.user_id}">Ответить</button><button class="button secondary" data-action="support-close-user" data-user-id="${u.user_id}">Закрыть диалог</button><button class="button danger" data-action="support-revoke-user" data-user-id="${u.user_id}">Отозвать доступ</button></div></div>`).join("")||'<div class="notice"><b>✓</b><span>Доступ к поддержке не выдан.</span></div>'}</div></section>`;
+
+views["admin-users"] = () => page("Управление пользователями", "Все действия проверяются сервером.", `<div class="modal"><input class="input" id="admin-user-id" type="number" min="1" placeholder="Telegram ID" /><input class="input" id="admin-amount" type="number" min="1" placeholder="Количество / сумма" /><input class="input" id="admin-reason" maxlength="300" placeholder="Причина блокировки" /><input class="input" id="admin-gift-id" maxlength="128" placeholder="Gift ID для ручной выдачи" /><div class="section list">${[["add_coins","Начислить DC"],["remove_coins","Снять DC"],["add_visual","Начислить визуальные DC"],["remove_visual","Снять визуальные DC"],["add_messages","Добавить сообщения"],["remove_messages","Убрать сообщения"],["add_daily","Добавить сообщения за сегодня"],["remove_daily","Убрать сообщения за сегодня"],["grant_support","Выдать доступ к поддержке"],["revoke_support","Забрать доступ к поддержке"],["ban","Заблокировать"],["unban","Разблокировать"],["vip","Выдать VIP"],["unvip","Снять VIP"],["send_gift","Поставить подарок в очередь"]].map(([action,title])=>`<button class="button secondary" data-action="admin-do" data-admin-action="${action}">${title}</button>`).join("")}</div></div><div class="section-title"><h2>Заблокированные</h2></div><div class="list">${(state.adminOverview?.banned_users||[]).map(u=>`<div class="list-row"><span class="row-main"><strong>${escapeHtml(u.name)} (${u.user_id})</strong><span>${escapeHtml(u.reason)}</span></span><button class="button secondary" data-action="admin-unban" data-user-id="${u.user_id}">Снять бан</button></div>`).join("")||'<div class="notice"><b>✓</b><span>Заблокированных нет.</span></div>'}</div>`);
+
+const renderAdminUserControls = views["admin-users"];
+views["admin-users"] = () => `${renderAdminUserControls()}<section class="section"><div class="section-title"><h2>Пользователи и балансы</h2></div><div class="list">${(state.adminOverview?.users||[]).map(u=>`<div class="list-row"><span class="row-main"><strong>${escapeHtml(u.name)} · ${u.user_id}</strong><span>${u.username?`@${escapeHtml(u.username)} · `:""}${format(u.balance)} DC + ${format(u.visual_balance)} визуальных</span></span></div>`).join("")}</div><div class="section-title"><h2>VIP</h2></div><div class="list">${(state.adminOverview?.vip_users||[]).map(u=>`<div class="list-row"><span class="row-main"><strong>${escapeHtml(u.name)} · ${u.user_id}</strong><span>${format(u.messages)} сообщений</span></span><button class="button secondary" data-action="admin-unvip" data-user-id="${u.user_id}">Снять VIP</button></div>`).join("")||'<div class="notice"><b>✓</b><span>VIP-игроков нет.</span></div>'}</div></section>`;
+
+views["admin-promos"] = () => page("Промокоды", "Создавай DC, кейсовые и бустерные промокоды.", `<div class="stat-row"><div class="stat"><b>${state.adminOverview?.players??"—"}</b><small>Игроков</small></div><div class="stat"><b>${state.adminOverview?.promos?.length??"—"}</b><small>Промокодов</small></div><div class="stat"><b>${state.adminOverview?.star_balance??"—"}</b><small>Stars</small></div></div><div class="modal"><select class="input" id="promo-kind"><option value="coins">D-COINS</option><option value="case">Ключи кейса</option><option value="booster">Бустер</option></select><input class="input" id="promo-new-code" maxlength="32" placeholder="Код" /><input class="input" id="promo-new-reward" type="number" min="1" placeholder="Награда DC" /><input class="input" id="promo-new-count" type="number" min="1" value="1" placeholder="Количество предметов" /><select class="input" id="promo-item">${Object.entries(CASES).map(([id,c])=>`<option value="case:${id}">Кейс ${escapeHtml(c.title)}</option>`).join("")}${Object.entries(BOOSTERS).map(([id,b])=>`<option value="booster:${id}">Бустер ${escapeHtml(b[0])}</option>`).join("")}</select><input class="input" id="promo-new-limit" type="number" min="1" placeholder="Лимит (пусто = без лимита)" /><label class="pill"><input type="checkbox" id="promo-hidden" /> Не публиковать в канале</label><button class="button primary wide" data-action="admin-create-promo">Создать</button></div><div class="section list">${(state.adminOverview?.promos||[]).map(p=>`<div class="list-row">${icon("⌁")}<span class="row-main"><strong>${escapeHtml(p.code)}</strong><span>${escapeHtml(String(p.reward))} ${escapeHtml(p.type)} · ${p.uses}/${p.max_uses??"∞"}</span></span><button class="button danger" data-action="admin-delete-promo" data-promo-code="${escapeHtml(p.code)}">Удалить</button></div>`).join("")}</div>`);
 function caseCard(letter, title, price, view) { return `<button class="case-card" type="button" data-view="${view}"><span class="case-icon">${letter}</span><h3>${title}</h3><p>Награды, подарки и бустеры</p><span class="price">${price}</span></button>`; }
 function boosters() {
   if (!state.boosters.length) return '<div class="notice"><b>⌁</b><span>В инвентаре пока нет бустеров.</span></div>';
@@ -90,6 +117,7 @@ function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (cha
 
 function render() {
   const view = state.view;
+  if (view.startsWith("admin") && !state.isAdmin) { state.view = "home"; return render(); }
   if (view === "mines-active") return renderMines();
   if (view === "crash-active") return renderCrash();
   if (view.startsWith("play:")) return renderGame(view.split(":")[1]);
@@ -98,8 +126,9 @@ function render() {
   document.querySelector("#screen").innerHTML = views[view] ? views[view]() : views.home();
   document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   if (view === "top" && !state.top.length) loadTop();
+  if (view === "stats" && !state.stats) loadStats();
   if (["jackpot", "jackpot-top", "jackpot-winners"].includes(view) && state.jackpotTop === null) loadJackpot();
-  if (["admin-promos", "admin-settings"].includes(view) && state.isAdmin && !state.adminOverview) loadAdminOverview();
+  if (view.startsWith("admin") && state.isAdmin && !state.adminOverview) loadAdminOverview();
   if (view === "mini-events" && !state.miniEventLoaded) loadMiniEvent();
   if (view === "duels" && !state.duelsLoaded) loadDuels();
 }
@@ -149,9 +178,26 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
   if (target.dataset.action === "admin-refresh") { loadAdminOverview(); return; }
-  if (target.dataset.action === "admin-create-promo") { runAdminAction("create_promo"); return; }
+  if (target.dataset.action === "admin-create-promo") { const kind = document.querySelector("#promo-kind")?.value; runAdminAction(kind === "case" ? "create_case_promo" : kind === "booster" ? "create_booster_promo" : "create_promo"); return; }
   if (target.dataset.action === "admin-delete-promo") { runAdminAction("delete_promo", undefined, target.dataset.promoCode); return; }
   if (target.dataset.action === "admin-do") { runAdminAction(target.dataset.adminAction, target.dataset.itemId); return; }
+  if (target.dataset.action === "golden-start") { runAdminAction("golden_hour_start"); return; }
+  if (target.dataset.action === "golden-stop") { runAdminAction("golden_hour_stop"); return; }
+  if (target.dataset.action === "reset-all") { if (confirm("Сбросить игровые данные всех пользователей?")) runAdminAction("reset_all"); return; }
+  if (target.dataset.action === "broadcast-send") { const kind = document.querySelector("#broadcast-kind")?.value; runAdminAction(kind === "case" ? "broadcast_case" : kind === "booster" ? "broadcast_booster" : "broadcast_coins"); return; }
+  if (target.dataset.action === "admin-unban") { runAdminAction("unban", undefined, undefined, Number(target.dataset.userId)); return; }
+  if (target.dataset.action === "admin-unvip") { runAdminAction("unvip", undefined, undefined, Number(target.dataset.userId)); return; }
+  if (target.dataset.action === "mini-event-create") { runAdminAction("mini_event_create"); return; }
+  if (target.dataset.action === "mini-event-cancel") { if (confirm("Отменить текущий мини-ивент?")) runAdminAction("mini_event_cancel"); return; }
+  if (target.dataset.action === "save-star-price") { runAdminAction("set_star_price", target.dataset.dc); return; }
+  if (target.dataset.action === "save-exchange-price") { runAdminAction("set_exchange_price", target.dataset.key); return; }
+  if (target.dataset.action === "save-case-chance") { runAdminAction("set_case_chance"); return; }
+  if (target.dataset.action === "publish-channel") { runAdminAction("publish_channel"); return; }
+  if (target.dataset.action === "send-group") { runAdminAction("send_group"); return; }
+  if (target.dataset.action === "admin-topup-stars") { runAdminAction("topup_stars_invoice"); return; }
+  if (target.dataset.action === "support-reply") { runAdminAction("support_reply", undefined, undefined, Number(target.dataset.userId)); return; }
+  if (target.dataset.action === "support-close-user") { runAdminAction("support_close", undefined, undefined, Number(target.dataset.userId)); return; }
+  if (target.dataset.action === "support-revoke-user") { runAdminAction("revoke_support", undefined, undefined, Number(target.dataset.userId)); return; }
   if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
 });
 
@@ -486,42 +532,86 @@ async function loadJackpot() {
 async function loadAdminOverview() {
   try {
     state.adminOverview = await api("/api/admin/overview");
-    if (["admin-promos", "admin-settings"].includes(state.view)) render();
+    if (state.view.startsWith("admin")) render();
   } catch (error) { alert(error.message || "Не удалось загрузить админ-сводку."); }
 }
-async function runAdminAction(action, itemId, promoCode) {
+async function runAdminAction(action, itemId, promoCode, selectedUserId) {
   if (!state.isAdmin) { alert("Нет доступа."); return; }
-  const userId = Number(document.querySelector("#admin-user-id")?.value);
+  const userId = Number(selectedUserId || document.querySelector("#admin-user-id")?.value);
   const amount = Number(document.querySelector("#admin-amount")?.value);
   const payload = { action };
+  if (action.startsWith("broadcast_")) {
+    const broadcastAmount = Number(document.querySelector("#broadcast-amount")?.value);
+    if (!Number.isSafeInteger(broadcastAmount) || broadcastAmount <= 0) { alert("Укажи положительное целое количество."); return; }
+    payload.amount = broadcastAmount;
+    const item = document.querySelector("#broadcast-item")?.value || "case:blood";
+    if (action === "broadcast_case") payload.case_id = item.startsWith("case:") ? item.slice(5) : "blood";
+    if (action === "broadcast_booster") payload.booster_id = item.startsWith("booster:") ? item.slice(8) : "double";
+  }
+  if (action === "mini_event_create") {
+    payload.kind = document.querySelector("#mini-event-kind")?.value;
+    payload.reward = Number(document.querySelector("#mini-event-reward")?.value);
+    payload.duration = Number(document.querySelector("#mini-event-duration")?.value);
+    payload.max_participants = Number(document.querySelector("#mini-event-count")?.value);
+    if (!Number.isSafeInteger(payload.reward) || payload.reward <= 0 || !Number.isSafeInteger(payload.duration)) { alert("Проверь награду и длительность мини-ивента."); return; }
+  }
+  if (action === "set_star_price") { payload.key = String(itemId); payload.value = Number(document.querySelector(`#star-price-${itemId}`)?.value); }
+  if (action === "set_exchange_price") { payload.key = String(itemId); payload.value = Number(document.querySelector(`#exchange-price-${itemId}`)?.value); }
+  if (action === "set_case_chance") {
+    const index = document.querySelector("#chance-index")?.value?.trim();
+    const chance = document.querySelector("#chance-value")?.value?.trim();
+    if (!index || !chance || !Number.isInteger(Number(index)) || !Number.isFinite(Number(chance))) { alert("Укажи номер награды и числовой шанс."); return; }
+    payload.case_id = document.querySelector("#chance-case")?.value; payload.index = Number(index); payload.chance = Number(chance);
+  }
+  if (action === "publish_channel" || action === "send_group") payload.text = document.querySelector("#admin-message")?.value?.trim() || "";
+  if (action === "support_reply") payload.text = document.querySelector(`#support-reply-${userId}`)?.value?.trim() || "";
   if (itemId !== undefined) payload.item_id = Number(itemId);
-  if (action === "create_promo") {
+  if (["create_promo", "create_case_promo", "create_booster_promo"].includes(action)) {
     const code = document.querySelector("#promo-new-code")?.value?.trim().toUpperCase();
-    const reward = Number(document.querySelector("#promo-new-reward")?.value);
     const limitText = document.querySelector("#promo-new-limit")?.value?.trim();
     const limit = limitText ? Number(limitText) : null;
     if (!code || !/^[A-Z0-9_-]{3,32}$/.test(code)) { alert("Код: 3–32 символа, латинские буквы, цифры, _ или -."); return; }
-    if (!Number.isSafeInteger(reward) || reward <= 0) { alert("Награда должна быть положительным целым числом."); return; }
     if (limit !== null && (!Number.isSafeInteger(limit) || limit <= 0)) { alert("Лимит должен быть положительным целым числом."); return; }
-    payload.code = code; payload.reward = reward; payload.max_uses = limit;
+    payload.code = code; payload.max_uses = limit; payload.hidden = Boolean(document.querySelector("#promo-hidden")?.checked);
+    if (action === "create_promo") {
+      const reward = Number(document.querySelector("#promo-new-reward")?.value);
+      if (!Number.isSafeInteger(reward) || reward <= 0) { alert("Награда DC должна быть положительным целым числом."); return; }
+      payload.reward = reward;
+    } else {
+      const [kind, id] = (document.querySelector("#promo-item")?.value || "").split(":");
+      payload.count = Number(document.querySelector("#promo-new-count")?.value);
+      if (!Number.isSafeInteger(payload.count) || payload.count < 1) { alert("Количество должно быть положительным целым числом."); return; }
+      payload[action === "create_case_promo" ? "case_id" : "booster_id"] = id;
+    }
   }
   if (action === "delete_promo") {
     if (!promoCode) { alert("Промокод не указан."); return; }
     payload.code = promoCode;
   }
-  if (["add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip"].includes(action)) {
+  if (["add_coins", "remove_coins", "add_visual", "remove_visual", "add_messages", "remove_messages", "add_daily", "remove_daily", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip", "send_gift", "support_reply", "support_close"].includes(action)) {
     if (!Number.isInteger(userId) || userId <= 0) { alert("Укажи корректный Telegram ID."); return; }
     payload.user_id = userId;
   }
-  if (["add_coins", "remove_coins"].includes(action)) {
+  if (["add_coins", "remove_coins", "add_visual", "remove_visual", "add_messages", "remove_messages", "add_daily", "remove_daily"].includes(action)) {
     if (!Number.isInteger(amount) || amount <= 0) { alert("Укажи положительную сумму DC."); return; }
     payload.amount = amount;
   }
+  if (action === "ban") payload.reason = document.querySelector("#admin-reason")?.value?.trim() || "";
+  if (action === "send_gift") payload.gift_id = document.querySelector("#admin-gift-id")?.value?.trim() || "";
   try {
     const result = await api("/api/admin/action", { method: "POST", body: JSON.stringify(payload) });
-    if (action === "create_promo" && result.published === false) alert("Промокод создан, но не опубликован в канале. Проверь права бота.");
+    if (action === "topup_stars_invoice") {
+      const webApp = window.Telegram?.WebApp;
+      if (!webApp?.openInvoice) throw new Error("Открой Mini App внутри Telegram для оплаты.");
+      webApp.openInvoice(result.invoice_link);
+      return;
+    }
+    if (action.startsWith("create_") && result.published === false && !result.hidden) alert("Промокод создан, но не опубликован в канале. Проверь права бота.");
+    else if (action === "reset_all") alert(`Игровые данные сброшены. Пользователей обработано: ${result.players}.`);
+    else if (action.startsWith("broadcast_")) alert(`Раздача создана. Получателей: ${result.players}.`);
     else alert("Действие выполнено.");
-    if (["admin-promos", "admin-settings"].includes(state.view)) await loadAdminOverview();
+    state.adminOverview = null;
+    if (state.view.startsWith("admin")) await loadAdminOverview();
   } catch (error) { alert(error.message || "Админ-действие не выполнено."); }
 }
 
@@ -531,6 +621,15 @@ async function loadTop() {
     state.top = (await api("/api/top")).players;
     if (state.view === "top") render();
   } catch { /* the empty state remains visible until the next refresh */ }
+}
+async function loadStats() {
+  try {
+    if (!state.initData) return;
+    state.stats = await api("/api/stats");
+    if (state.view === "stats") render();
+  } catch (error) {
+    if (state.view === "stats") alert(error.message || "Не удалось загрузить статистику.");
+  }
 }
 async function bootstrap() {
   const webApp = window.Telegram?.WebApp;
