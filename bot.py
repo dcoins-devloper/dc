@@ -3842,7 +3842,7 @@ async def event_page(uid, name, page):
     return (text.replace(",", " "), InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
-@router.message(F.text.regexp("(?i)^/?(ивент|квесты|путь|event|quests|path)(?:@\\w+)?$"))
+@router.message(F.text.regexp(r"(?!)"))
 async def school_command(message: Message):
     if not SCHOOL_EVENT_ENABLED:
         return
@@ -9253,6 +9253,42 @@ async def miniapp_top(request: web.Request) -> web.Response:
     )
 
 
+async def miniapp_stats(request: web.Request) -> web.Response:
+    """Return the personal and community statistics previously shown by bot commands."""
+    user = await miniapp_authorize(request)
+    chance, messages, _ = await db.get_user(user["id"], MAIN_CHAT_ID)
+    wins = await db.get_wins_count(user["id"], MAIN_CHAT_ID)
+    daily_rows = await db.get_daily_top(MAIN_CHAT_ID)
+    today_messages = next(
+        (int(count) for name, count in daily_rows if str(name) == user["name"]),
+        0,
+    )
+    return web.json_response(
+        {
+            "personal": {
+                "chance": float(chance),
+                "messages": int(messages),
+                "wins": int(wins),
+                "daily_messages": today_messages,
+            },
+            "rankings": {
+                "chance": [
+                    {"name": str(name), "chance": float(value), "messages": int(count)}
+                    for name, value, count in await db.get_top(MAIN_CHAT_ID)
+                ],
+                "wins": [
+                    {"name": str(name), "wins": int(count)}
+                    for name, count in await db.get_wins_top(MAIN_CHAT_ID)
+                ],
+                "daily": [
+                    {"name": str(name), "messages": int(count)}
+                    for name, count in daily_rows
+                ],
+            },
+        }
+    )
+
+
 def miniapp_crash_payload(game: dict, finished: bool = False) -> dict:
     step = int(game["step"])
     multiplier = float(game["multipliers"][min(step, len(game["multipliers"]) - 1)])
@@ -10030,6 +10066,27 @@ async def miniapp_admin_overview(request: web.Request) -> web.Response:
     promos = await db.get_promos()
     gifts = await db.get_pending_gifts()
     orders = await db.get_premium_orders()
+    banned = await db.get_ban_list()
+    support_users = await db.get_support_access_list()
+    support_status = []
+    for support_uid, support_name, granted_at in support_users:
+        support_status.append({"user_id": int(support_uid), "name": str(support_name), "active": await db.is_support_session_active(int(support_uid)), "granted_at": int(granted_at)})
+    async with connect(db.path) as connection:
+        connection.row_factory = aiosqlite.Row
+        async with connection.execute(
+            "SELECT c.user_id, COALESCE(s.user_name,CAST(c.user_id AS TEXT)) AS name, COALESCE(s.username,'') AS username, c.balance, COALESCE(c.visual_balance,0) AS visual_balance FROM coins c LEFT JOIN user_stats s ON s.user_id=c.user_id AND s.chat_id=? ORDER BY c.balance DESC LIMIT 100",
+            (MAIN_CHAT_ID,),
+        ) as cursor:
+            users = [dict(row) for row in await cursor.fetchall()]
+        async with connection.execute(
+            "SELECT v.user_id, COALESCE(s.user_name,CAST(v.user_id AS TEXT)) AS name, COALESCE(s.msg_count,0) AS messages FROM vip_users v LEFT JOIN user_stats s ON s.user_id=v.user_id AND s.chat_id=? ORDER BY name",
+            (MAIN_CHAT_ID,),
+        ) as cursor:
+            vip_users = [dict(row) for row in await cursor.fetchall()]
+    try:
+        stars = int((await request.app["bot"].get_my_star_balance()).amount)
+    except Exception:
+        stars = None
     return web.json_response({
         "players": players,
         "pending_gifts": pending_gifts,
@@ -10038,20 +10095,189 @@ async def miniapp_admin_overview(request: web.Request) -> web.Response:
         "pending_gift_items": [{"id": row[0], "user_id": row[1], "user_name": row[2], "gift_id": row[3], "reason": row[4]} for row in gifts[:20]],
         "premium_order_items": [{"id": row[0], "user_id": row[1], "user_name": row[2], "cost": row[3]} for row in orders[:20]],
         "star_packages": STAR_DC_PACKAGES,
+        "exchange_prices": ECONOMY,
+        "case_chances": {case_id: [{"index": index, "label": case_prize_label(reward), "chance": case_reward_parts(reward)[2]} for index, reward in enumerate(case["rewards"])] for case_id, case in CASES.items()},
+        "star_balance": stars,
+        "banned_users": [{"user_id": int(row[0]), "name": str(row[1]), "reason": str(row[2] or "")} for row in banned],
+        "users": users,
+        "vip_users": vip_users,
+        "support_users": support_status,
     })
 
 
 async def miniapp_admin_action(request: web.Request) -> web.Response:
-    await miniapp_admin(request)
+    admin_user = await miniapp_admin(request)
     try:
         payload = await request.json()
         action = str(payload["action"])
         user_id = int(payload.get("user_id", 0))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise web.HTTPBadRequest(text="Invalid admin request")
-    if action in {"add_coins", "remove_coins", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip"} and user_id <= 0:
+    if action in {"add_coins", "remove_coins", "add_visual", "remove_visual", "add_messages", "remove_messages", "add_daily", "remove_daily", "grant_support", "revoke_support", "ban", "unban", "vip", "unvip", "send_gift"} and user_id <= 0:
         raise web.HTTPBadRequest(text="A valid user ID is required")
-    if action in {"add_coins", "remove_coins"}:
+    if action in {"golden_hour_start", "golden_hour_stop"}:
+        global GOLDEN_HOUR_UNTIL
+        if action == "golden_hour_start":
+            if golden_hour_active():
+                return web.json_response({"ok": True, "active": True, "remaining": max(0, int(GOLDEN_HOUR_UNTIL - time.time()))})
+            GOLDEN_HOUR_UNTIL = time.time() + GOLDEN_HOUR_SECONDS
+            try:
+                await request.app["bot"].send_message(
+                    REQUIRED_CHANNEL,
+                    "⚡ ЗОЛОТОЙ ЧАС НАЧАЛСЯ!\n\n⏳ Длительность: 60 минут\n💰 Все выигрыши в играх умножаются на ×2!",
+                )
+            except Exception:
+                logger.exception("Could not publish Golden Hour start")
+            return web.json_response({"ok": True, "active": True, "remaining": GOLDEN_HOUR_SECONDS})
+        GOLDEN_HOUR_UNTIL = 0.0
+        return web.json_response({"ok": True, "active": False, "remaining": 0})
+    if action == "publish_channel" or action == "send_group":
+        content = str(payload.get("text", "")).strip()
+        if not content or len(content) > 4000:
+            raise web.HTTPBadRequest(text="Text must be between 1 and 4000 characters")
+        chat_id = REQUIRED_CHANNEL if action == "publish_channel" else MAIN_CHAT_ID
+        await request.app["bot"].send_message(chat_id, content)
+        return web.json_response({"ok": True})
+    if action in {"support_reply", "support_close"}:
+        try:
+            target_id = int(payload["user_id"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="A valid user ID is required")
+        if not await db.has_support_access(target_id):
+            raise web.HTTPNotFound(text="Support access is not granted")
+        if action == "support_close":
+            await db.set_support_session(target_id, False)
+            message_text = "🔒 Администратор закрыл диалог."
+        else:
+            message_text = str(payload.get("text", "")).strip()
+            if not message_text or len(message_text) > 2000:
+                raise web.HTTPBadRequest(text="Reply must be between 1 and 2000 characters")
+            if not await db.is_support_session_active(target_id):
+                raise web.HTTPConflict(text="User has closed the support chat")
+            message_text = f"💬 Администратор:\n\n{message_text}"
+        try:
+            await request.app["bot"].send_message(target_id, message_text, reply_markup=support_chat_keyboard())
+        except Exception as error:
+            logger.exception("Mini App could not send support message")
+            raise web.HTTPBadGateway(text="Could not deliver support message") from error
+        return web.json_response({"ok": True})
+    if action == "topup_stars_invoice":
+        payload_id = await create_invoice_order(db.path, admin_user["id"], 0, POPOLNIT_AMOUNT)
+        link = await request.app["bot"].create_invoice_link(
+            title="Пополнение баланса бота",
+            description=f"Пополнение на {POPOLNIT_AMOUNT} Stars",
+            payload=payload_id,
+            currency="XTR",
+            prices=[LabeledPrice(label="Stars", amount=POPOLNIT_AMOUNT)],
+        )
+        return web.json_response({"invoice_link": link, "stars": POPOLNIT_AMOUNT})
+    if action in {"set_star_price", "set_exchange_price"}:
+        key = str(payload.get("key", ""))
+        try:
+            value = int(payload["value"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Invalid price")
+        if not 1 <= value <= 1_000_000_000:
+            raise web.HTTPBadRequest(text="Price is outside the allowed range")
+        if action == "set_star_price":
+            try:
+                dc_amount = int(key)
+            except ValueError:
+                raise web.HTTPBadRequest(text="Invalid DC package")
+            if dc_amount not in STAR_DC_PACKAGES:
+                raise web.HTTPBadRequest(text="Unknown DC package")
+            STAR_DC_PACKAGES[dc_amount] = value
+            await db.set_setting(f"stars:{dc_amount}", value)
+        else:
+            if key not in ECONOMY:
+                raise web.HTTPBadRequest(text="Unknown exchange price")
+            ECONOMY[key] = value
+            await db.set_setting(f"economy:{key}", value)
+        return web.json_response({"ok": True})
+    if action == "set_case_chance":
+        case_id = str(payload.get("case_id", ""))
+        try:
+            index = int(payload["index"])
+            chance = float(payload["chance"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Invalid case chance")
+        if case_id not in CASES or not 0 <= index < len(CASES[case_id]["rewards"]) or not math.isfinite(chance) or chance < 0:
+            raise web.HTTPBadRequest(text="Invalid case chance")
+        reward = CASES[case_id]["rewards"][index]
+        kind, value, _weight = case_reward_parts(reward)
+        CASES[case_id]["rewards"][index] = (kind, value, chance)
+        total = sum(case_reward_parts(item)[2] for item in CASES[case_id]["rewards"])
+        if total <= 0:
+            CASES[case_id]["rewards"][index] = reward
+            raise web.HTTPBadRequest(text="At least one reward chance must be greater than zero")
+        await save_case_chances(case_id)
+        await load_runtime_settings()
+        return web.json_response({"ok": True})
+    if action == "reset_all":
+        players = await db.reset_all_player_data()
+        active_games.clear()
+        pending_game_bets.clear()
+        active_duels.clear()
+        duel_by_user.clear()
+        return web.json_response({"ok": True, "players": players})
+    if action in {"mini_event_create", "mini_event_cancel"}:
+        bot: Bot = request.app["bot"]
+        if action == "mini_event_cancel":
+            event = await db.cancel_mini_event(REQUIRED_CHANNEL)
+            if not event:
+                raise web.HTTPNotFound(text="No active mini-event")
+            if event.get("message_id"):
+                try:
+                    await bot.edit_message_text(chat_id=REQUIRED_CHANNEL, message_id=event["message_id"], text="❌ Мини-ивент отменён администратором.")
+                except Exception:
+                    logger.exception("Could not update cancelled mini-event post")
+            return web.json_response({"ok": True, "cancelled": True})
+        try:
+            kind = str(payload["kind"])
+            reward = int(payload["reward"])
+            duration = int(payload["duration"])
+            max_participants = int(payload.get("max_participants", 0))
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Invalid mini-event settings")
+        if kind not in {"first", "first_n", "ticket"} or not 1 <= reward <= 1_000_000_000 or not 10 <= duration <= 3600:
+            raise web.HTTPBadRequest(text="Mini-event settings are outside allowed limits")
+        if kind == "first":
+            max_participants = 1
+        elif kind == "first_n" and not 1 <= max_participants <= 100:
+            raise web.HTTPBadRequest(text="Participant count must be 1-100")
+        elif kind == "ticket":
+            max_participants = 0
+        status, event = await db.create_mini_event(kind, REQUIRED_CHANNEL, reward, max_participants, duration)
+        if status != "created":
+            raise web.HTTPConflict(text="An active mini-event already exists")
+        try:
+            post = await bot.send_message(REQUIRED_CHANNEL, mini_event_text(event) + f"\n\n⏳ Время: {duration // 60} мин. {duration % 60} сек.", reply_markup=mini_event_keyboard(event["id"]))
+            await db.set_mini_event_message(event["id"], post.message_id)
+        except Exception as error:
+            await db.cancel_mini_event(REQUIRED_CHANNEL)
+            raise web.HTTPBadGateway(text="Could not publish mini-event") from error
+        return web.json_response({"ok": True, "event_id": event["id"]})
+    if action in {"broadcast_coins", "broadcast_case", "broadcast_booster"}:
+        try:
+            amount = int(payload["amount"])
+        except (KeyError, TypeError, ValueError):
+            raise web.HTTPBadRequest(text="A positive amount is required")
+        if not 1 <= amount <= MAX_BET:
+            raise web.HTTPBadRequest(text="Invalid amount")
+        if action == "broadcast_coins":
+            broadcast_id, players = await db.create_bonus_broadcast(amount)
+        elif action == "broadcast_case":
+            case_id = str(payload.get("case_id", ""))
+            if case_id not in CASES:
+                raise web.HTTPBadRequest(text="Unknown case")
+            broadcast_id, players = await db.create_case_broadcast(case_id, amount)
+        else:
+            booster_id = str(payload.get("booster_id", ""))
+            if booster_id not in BOOSTERS:
+                raise web.HTTPBadRequest(text="Unknown booster")
+            broadcast_id, players = await db.create_booster_broadcast(booster_id, amount)
+        return web.json_response({"ok": True, "broadcast_id": broadcast_id, "players": players})
+    if action in {"add_coins", "remove_coins", "add_visual", "remove_visual", "add_messages", "remove_messages", "add_daily", "remove_daily"}:
         try:
             amount = int(payload["amount"])
         except (KeyError, TypeError, ValueError):
@@ -10060,10 +10286,25 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
             raise web.HTTPBadRequest(text="A positive amount is required")
         if action == "add_coins":
             balance = await db.add_coins(user_id, amount)
-        else:
+        elif action == "remove_coins":
             if not await db.remove_coins(user_id, amount):
                 raise web.HTTPBadRequest(text="Insufficient D-COINS")
             balance, _ = await db.get_coins(user_id)
+        elif action in {"add_visual", "remove_visual"}:
+            changed, balance, _real, _visual = await db.change_visual_balance(user_id, amount if action == "add_visual" else -amount)
+            if not changed:
+                raise web.HTTPBadRequest(text="Visual balance could not be changed")
+        else:
+            chance, messages, last_bonus = await db.get_user(user_id, MAIN_CHAT_ID)
+            user_name = await db.get_user_name(user_id)
+            if action in {"add_messages", "remove_messages"}:
+                updated = max(0, messages + (amount if action == "add_messages" else -amount))
+                await db.update_user(user_id, MAIN_CHAT_ID, user_name, chance, updated, last_bonus)
+            elif action == "add_daily":
+                await db.add_day_messages(user_id, MAIN_CHAT_ID, user_name, amount)
+            else:
+                await db.remove_day_messages(user_id, MAIN_CHAT_ID, amount)
+            balance = await db.get_display_balance(user_id)
         return web.json_response({"ok": True, "balance": balance})
     if action == "grant_support":
         await db.grant_support_access(user_id)
@@ -10077,25 +10318,56 @@ async def miniapp_admin_action(request: web.Request) -> web.Response:
         await db.set_vip(user_id)
     elif action == "unvip":
         await db.remove_vip(user_id)
-    elif action == "create_promo":
+    elif action == "send_gift":
+        gift_id = str(payload.get("gift_id", "")).strip()
+        if not gift_id or len(gift_id) > 128:
+            raise web.HTTPBadRequest(text="A gift ID is required")
+        try:
+            await send_bot_gift(request.app["bot"], user_id, gift_id)
+        except Exception as error:
+            raise web.HTTPBadGateway(text="Telegram could not queue this gift") from error
+    elif action in {"create_promo", "create_case_promo", "create_booster_promo"}:
         code = str(payload.get("code", "")).strip().upper()
         try:
-            reward = int(payload["reward"])
             raw_limit = payload.get("max_uses")
             max_uses = int(raw_limit) if raw_limit not in (None, "") else None
         except (KeyError, TypeError, ValueError):
-            raise web.HTTPBadRequest(text="Enter a valid reward and optional limit")
+            raise web.HTTPBadRequest(text="Enter a valid optional limit")
         if not 3 <= len(code) <= 32 or not all((char.isascii() and char.isalnum()) or char in "_-" for char in code):
             raise web.HTTPBadRequest(text="Promo code must be 3-32 characters: letters, digits, _ or -")
-        if not await db.create_promo(code, reward, max_uses):
-            raise web.HTTPBadRequest(text="Could not create promo. Check reward, limit and code uniqueness.")
+        if action == "create_promo":
+            try:
+                reward = int(payload["reward"])
+            except (KeyError, TypeError, ValueError):
+                raise web.HTTPBadRequest(text="Enter a valid reward")
+            created = await db.create_promo(code, reward, max_uses)
+            reward_text = f"{reward:,} DC".replace(",", " ")
+        elif action == "create_case_promo":
+            case_id = str(payload.get("case_id", ""))
+            try:
+                count = int(payload.get("count", 1))
+            except (TypeError, ValueError):
+                raise web.HTTPBadRequest(text="Enter a valid case quantity")
+            if case_id not in CASES or not 1 <= count <= 100:
+                raise web.HTTPBadRequest(text="Invalid case or quantity")
+            created = await db.create_case_promo(code, case_id, count, max_uses)
+            reward_text = f"{CASES[case_id]['title']} × {count}"
+        else:
+            booster_id = str(payload.get("booster_id", ""))
+            try:
+                count = int(payload.get("count", 1))
+            except (TypeError, ValueError):
+                raise web.HTTPBadRequest(text="Enter a valid booster quantity")
+            if booster_id not in BOOSTERS or not 1 <= count <= 100:
+                raise web.HTTPBadRequest(text="Invalid booster or quantity")
+            created = await db.create_booster_promo(code, booster_id, count, max_uses)
+            reward_text = f"{BOOSTERS[booster_id][0]} × {count}"
+        if not created:
+            raise web.HTTPBadRequest(text="Could not create promo. Check values and code uniqueness.")
         limit_text = str(max_uses) if max_uses is not None else "без лимита"
-        bot: Bot = request.app["bot"]
-        published = await publish_promo(
-            bot,
-            f"🎁 Новый промокод!\n\n🔑 Код: <code>{code}</code>\n🪙 Награда: {reward:,} DC\n👥 Активаций: {limit_text}\n\nАктивировать в боте: промо {code}".replace(",", " "),
-        )
-        return web.json_response({"ok": True, "code": code, "published": bool(published)})
+        hidden = bool(payload.get("hidden", False))
+        published = False if hidden else await publish_promo(request.app["bot"], f"🎁 Новый промокод!\n\n🔑 Код: <code>{code}</code>\n🎁 Награда: {reward_text}\n👥 Активаций: {limit_text}\n\nАктивировать: промо {code}")
+        return web.json_response({"ok": True, "code": code, "published": bool(published), "hidden": hidden})
     elif action == "delete_promo":
         code = str(payload.get("code", "")).strip().upper()
         if not code or not await db.delete_promo(code):
@@ -10154,6 +10426,7 @@ async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app.router.add_get("/miniapp/{filename}", miniapp_asset)
     app.router.add_get("/api/me", miniapp_me)
     app.router.add_get("/api/top", miniapp_top)
+    app.router.add_get("/api/stats", miniapp_stats)
     app.router.add_get("/api/jackpot", miniapp_jackpot)
     app.router.add_post("/api/transfer", miniapp_transfer)
     app.router.add_post("/api/bonus", miniapp_bonus)
