@@ -1241,6 +1241,36 @@ class Database:
             await db.commit()
             return True
 
+    async def select_booster(self, user_id: int, booster_id: str) -> bool:
+        """Reserve one booster for the next game, including concurrent selections."""
+        if booster_id not in BOOSTERS:
+            return False
+        async with connect(self.path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            async with db.execute(
+                "SELECT active_booster FROM booster_state WHERE user_id=?", (user_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row and row[0] == booster_id:
+                await db.commit()
+                return True
+            await db.execute("DELETE FROM boosters WHERE user_id=? AND expires_at<=?", (user_id, time.time()))
+            cur = await db.execute(
+                "UPDATE boosters SET amount=amount-1 WHERE user_id=? AND booster_id=? AND amount>0",
+                (user_id, booster_id),
+            )
+            if cur.rowcount != 1:
+                await db.rollback()
+                return False
+            await db.execute("DELETE FROM boosters WHERE user_id=? AND booster_id=? AND amount<=0", (user_id, booster_id))
+            await db.execute(
+                "INSERT INTO booster_state(user_id,last_offer,active_booster) VALUES (?,0,?) "
+                "ON CONFLICT(user_id) DO UPDATE SET active_booster=excluded.active_booster",
+                (user_id, booster_id),
+            )
+            await db.commit()
+            return True
+
     async def claim_booster_offer(self, user_id: int, booster_id: str) -> bool:
         if booster_id not in BOOSTERS or not await self.booster_offer_ready(user_id):
             return False
@@ -3541,7 +3571,33 @@ async def send_log(bot: Bot, text: str) -> None:
 
 
 async def send_game_log(bot: Bot, text: str) -> None:
-    await queue_notice(db.path, GAME_LOG_CHAT_ID, text)
+    await queue_notice(db.path, GAME_LOG_CHAT_ID or LOG_CHAT_ID, text)
+
+
+async def log_miniapp_game(
+    user: dict, game_name: str, bet: int, outcome: str, balance: int,
+    *, prize: int = 0, refund: int = 0, booster: str | None = None,
+    details: str = "",
+) -> None:
+    lines = [
+        f"🎮 Mini App · {game_name}",
+        f"👤 {user['name']} ({user['id']})",
+        f"💸 Ставка: {bet:,} DC",
+        outcome,
+    ]
+    if details:
+        lines.append(details)
+    if prize:
+        lines.append(f"🏆 Выплата: {prize:,} DC")
+    if refund:
+        lines.append(f"↩️ Возврат: {refund:,} DC")
+    if booster:
+        lines.append(f"⚡ Бустер: {BOOSTERS[booster][0]}")
+    lines.append(f"🪙 Баланс: {balance:,} DC")
+    try:
+        await queue_notice(db.path, GAME_LOG_CHAT_ID or LOG_CHAT_ID, "\n".join(lines).replace(",", " "))
+    except Exception:
+        logger.exception("Could not queue Mini App game log for user %s", user["id"])
 
 
 async def publish_promo(bot: Bot, text: str) -> bool:
@@ -3589,6 +3645,13 @@ async def casino_timeout_checker(bot: Bot) -> None:
             user = User(id=uid, is_bot=False, first_name=await db.get_user_name(uid))
             await school_game(user, f"mines:{game['token']}", game["bet"], True)
         await send_log(bot, f"Тайм-аут игры {uid}: начислено {refund} DC")
+        if game.get("source") == "miniapp":
+            await log_miniapp_game(
+                {"id": uid, "name": await db.get_user_name(uid)},
+                "Мины" if game["game"] == "mines" else "Crash",
+                game["bet"], "⏰ Тайм-аут", await db.get_display_balance(uid),
+                refund=refund, booster=game.get("booster"),
+            )
         try:
             await bot.send_message(
                 game["chat_id"],
@@ -6878,10 +6941,9 @@ async def booster_callback(callback: CallbackQuery) -> None:
         await callback.answer("⚡ Бустер добавлен в инвентарь")
     elif action == "select" and rest:
         key = rest[0]
-        if not await db.take_booster(uid, key):
+        if not await db.select_booster(uid, key):
             await callback.answer("Бустер закончился или истёк.", show_alert=True)
             return
-        await db.set_active_booster(uid, key)
         await callback.answer("Бустер выбран для следующей игры")
     elif action == "exchange":
         rows = await db.get_boosters(uid)
@@ -9329,6 +9391,7 @@ async def miniapp_crash_start(request: web.Request) -> web.Response:
     multipliers = CRASH_MULTIPLIERS[mode]
     game = {
         "game": "crash",
+        "source": "miniapp",
         "mode": mode,
         "bet": bet,
         "step": 0,
@@ -9343,7 +9406,9 @@ async def miniapp_crash_start(request: web.Request) -> web.Response:
     }
     await db.clear_active_booster(uid)
     active_games[uid] = game
-    return web.json_response({**miniapp_crash_payload(game), "balance": await db.get_display_balance(uid)})
+    balance_after = await db.get_display_balance(uid)
+    await log_miniapp_game(user, "Crash", bet, "▶️ Игра начата", balance_after, booster=booster, details=f"Режим: {mode}")
+    return web.json_response({**miniapp_crash_payload(game), "balance": balance_after})
 
 
 async def miniapp_crash_action(request: web.Request) -> web.Response:
@@ -9369,10 +9434,14 @@ async def miniapp_crash_action(request: web.Request) -> web.Response:
                 game["step"] = min(next_step, len(game["multipliers"]) - 1)
                 return web.json_response({**miniapp_crash_payload(game), "continued_by_booster": True, "balance": await db.get_display_balance(uid)})
             active_games.pop(uid, None)
+            refund = 0
             if game.get("booster") == "insurance":
-                await db.add_coins(uid, game["bet"] // 4)
+                refund = game["bet"] // 4
+                await db.add_coins(uid, refund)
             await school_event.record(uid, user["name"], f"crash:{token}:loss", {"games": 1, "gamewin": 0, "bets": game["bet"]})
-            return web.json_response({**miniapp_crash_payload(game, True), "won": False, "prize": 0, "balance": await db.get_display_balance(uid)})
+            balance_after = await db.get_display_balance(uid)
+            await log_miniapp_game(user, "Crash", game["bet"], "❌ Проигрыш", balance_after, refund=refund, booster=game.get("booster"), details=f"Шаг: {next_step}")
+            return web.json_response({**miniapp_crash_payload(game, True), "won": False, "prize": 0, "balance": balance_after})
         game["step"] = next_step
         return web.json_response({**miniapp_crash_payload(game), "won": None, "balance": await db.get_display_balance(uid)})
     if action == "cashout":
@@ -9385,7 +9454,9 @@ async def miniapp_crash_action(request: web.Request) -> web.Response:
             prize = int(prize * 1.25)
         await db.add_coins(uid, prize)
         await school_event.record(uid, user["name"], f"crash:{token}:win", {"games": 1, "gamewin": 1, "bets": game["bet"]})
-        return web.json_response({**miniapp_crash_payload(game, True), "won": True, "prize": prize, "balance": await db.get_display_balance(uid)})
+        balance_after = await db.get_display_balance(uid)
+        await log_miniapp_game(user, "Crash", game["bet"], "✅ Выигрыш", balance_after, prize=prize, booster=game.get("booster"), details=f"Коэффициент: ×{multiplier:.2f}")
+        return web.json_response({**miniapp_crash_payload(game, True), "won": True, "prize": prize, "balance": balance_after})
     raise web.HTTPBadRequest(text="Unknown Crash action")
 
 
@@ -9430,6 +9501,7 @@ async def miniapp_mines_start(request: web.Request) -> web.Response:
     casino_bet_cooldowns[user_id] = True
     game = {
         "game": "mines",
+        "source": "miniapp",
         "token": secrets.token_hex(12),
         "bet": bet,
         "mines": set(random.sample(range(MINES_GRID_SIZE), MINES_COUNT)),
@@ -9439,7 +9511,9 @@ async def miniapp_mines_start(request: web.Request) -> web.Response:
         "booster": booster,
     }
     active_games[user_id] = game
-    return web.json_response({**miniapp_mines_payload(game), "balance": await db.get_display_balance(user_id)})
+    balance_after = await db.get_display_balance(user_id)
+    await log_miniapp_game(user, "Мины", bet, "▶️ Игра начата", balance_after, booster=booster)
+    return web.json_response({**miniapp_mines_payload(game), "balance": balance_after})
 
 
 async def miniapp_mines_action(request: web.Request) -> web.Response:
@@ -9465,7 +9539,9 @@ async def miniapp_mines_action(request: web.Request) -> web.Response:
         active_games.pop(user_id, None)
         await db.add_coins(user_id, prize)
         await school_event.record(user_id, user["name"], f"mines:{token}:cashout", {"games": 1, "gamewin": 1, "bets": game["bet"]})
-        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
+        balance_after = await db.get_display_balance(user_id)
+        await log_miniapp_game(user, "Мины", game["bet"], "✅ Выигрыш", balance_after, prize=prize, booster=game.get("booster"), details=f"Открыто клеток: {safe_opened}")
+        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": balance_after})
     if action != "cell" or cell is None or not 0 <= cell < MINES_GRID_SIZE:
         raise web.HTTPBadRequest(text="Invalid cell")
     if cell in game["opened"]:
@@ -9480,7 +9556,9 @@ async def miniapp_mines_action(request: web.Request) -> web.Response:
             refund = await booster_loss_refund(user_id, game["bet"], game.get("booster"))
             await db.record_jackpot_loss(user_id, user["name"], game["bet"], f"mini:mines:{token}")
             await school_event.record(user_id, user["name"], f"mines:{token}:loss", {"games": 1, "gamewin": 0, "bets": game["bet"]})
-            return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": False, "prize": 0, "refund": refund, "balance": await db.get_display_balance(user_id)})
+            balance_after = await db.get_display_balance(user_id)
+            await log_miniapp_game(user, "Мины", game["bet"], "❌ Проигрыш", balance_after, refund=refund, booster=game.get("booster"), details=f"Мина в клетке: {cell + 1}")
+            return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": False, "prize": 0, "refund": refund, "balance": balance_after})
     else:
         game["opened"].add(cell)
         await school_event.record(user_id, user["name"], f"safe:mini:{token}:{cell}", {"safe": 1})
@@ -9489,7 +9567,9 @@ async def miniapp_mines_action(request: web.Request) -> web.Response:
         active_games.pop(user_id, None)
         await db.add_coins(user_id, prize)
         await school_event.record(user_id, user["name"], f"mines:{token}:clear", {"games": 1, "gamewin": 1, "bets": game["bet"]})
-        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": await db.get_display_balance(user_id)})
+        balance_after = await db.get_display_balance(user_id)
+        await log_miniapp_game(user, "Мины", game["bet"], "✅ Поле пройдено", balance_after, prize=prize, booster=game.get("booster"))
+        return web.json_response({**miniapp_mines_payload(game, reveal=True), "won": True, "prize": prize, "balance": balance_after})
     return web.json_response({**miniapp_mines_payload(game), "won": None, "balance": await db.get_display_balance(user_id)})
 
 
@@ -9845,10 +9925,8 @@ async def miniapp_set_booster(request: web.Request) -> web.Response:
         booster_id = str((await request.json()).get("booster_id", ""))
     except (json.JSONDecodeError, AttributeError):
         raise web.HTTPBadRequest(text="Invalid request")
-    available = {key for key, amount, _ in await db.get_boosters(user["id"]) if amount > 0}
-    if booster_id not in available:
+    if not await db.select_booster(user["id"], booster_id):
         raise web.HTTPBadRequest(text="Booster is unavailable")
-    await db.set_active_booster(user["id"], booster_id)
     return web.json_response({"active_booster": booster_id})
 
 
@@ -9942,6 +10020,11 @@ async def miniapp_play_game(request: web.Request) -> web.Response:
         {"games": 1, "gamewin": int(won), "bets": bet},
     )
     shown, _, _ = await db.get_balance_details(user["id"])
+    game_names = {"slots": "Слоты", "roulette": "Рулетка", "dice": "Кубик", "coinflip": "Орёл и решка", "scratch": "Скретч-карты", "lottery": "Лотерея 5×5"}
+    await log_miniapp_game(
+        user, game_names[game], bet, "✅ Выигрыш" if won else "❌ Проигрыш", shown,
+        prize=prize, refund=refund, booster=booster, details=f"Результат: {result}",
+    )
     return web.json_response({"won": won, "result": result, "prize": prize, "refund": refund, "balance": shown, "booster": BOOSTERS[booster][0] if booster else None})
 
 
