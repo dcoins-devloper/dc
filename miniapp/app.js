@@ -252,7 +252,7 @@ async function syncProfile() {
   state.pandoraRemaining = Number(data.pandora_remaining || 0);
   state.jackpot = data.jackpot || null;
   state.supportAccess = Boolean(data.support_access);
-  state.booster = data.active_booster ? (state.boosters.find((x) => x.id === data.active_booster)?.title || data.active_booster) : null;
+  state.booster = data.active_booster ? (state.boosters.find((x) => x.id === data.active_booster)?.title || BOOSTERS[data.active_booster]?.[0] || data.active_booster) : null;
   updateShell();
 }
 function showNotice(title, message, actions = `${btn("На главную", "home", "primary")}`) {
@@ -531,8 +531,12 @@ async function transferCoins() {
 
 async function selectBooster(boosterId, title) {
   try {
-    if (state.initData) await api("/api/booster/select", { method: "POST", body: JSON.stringify({ booster_id: boosterId }) });
-    state.booster = title;
+    if (state.initData) {
+      await api("/api/booster/select", { method: "POST", body: JSON.stringify({ booster_id: boosterId }) });
+      await syncProfile();
+    } else {
+      state.booster = title;
+    }
     render();
   } catch { alert("Не удалось выбрать бустер."); }
 }
