@@ -34,7 +34,7 @@ const card = (iconText, title, text, view) => `<button class="game-card" type="b
 
 const views = {
   home: () => `
-    <div class="page-head"><div class="eyebrow">D-COINS · игровой центр</div><h1>Привет, ${state.displayName}</h1><p class="lead">Все игровые функции бота — в одном месте.</p></div>
+    <div class="page-head home-head"><div class="eyebrow">ТВОЯ ИГРА. ТВОИ ПРАВИЛА.</div><h1>Есть стиль.<br><span>Будет победа.</span></h1><p class="lead">Привет, ${state.displayName}! Выбирай, во что сыграть сегодня.</p></div>
     <section class="balance-card"><div class="balance-label">Текущий баланс</div><div class="balance-number">${state.hiddenBalance ? "••••••" : `${format(state.balance)} <small>DC</small>`}</div><div class="balance-actions">${btn("Купить DC", "buy", "primary")}${btn("Баланс", "profile")}</div></section>
     <section class="section"><div class="section-title"><h2>Быстрый доступ</h2></div><div class="grid two">
       <button class="tile quick-card" type="button" data-view="games"><span class="icon">◈</span><strong>Игры</strong><small>8 игр</small></button>
@@ -43,7 +43,7 @@ const views = {
       <button class="tile quick-card" type="button" data-view="boosters"><span class="icon">⚡</span><strong>Бустеры</strong><small>Усиления для игр</small></button>
     </div></section>
     <section class="section"><div class="notice"><b>i</b><span>Используй кнопки ниже, чтобы открыть игры, кейсы, инвентарь или принять участие в джекпоте.</span></div></section>`,
-  games: () => page("Игры", "Выбери игру и укажи сумму ставки.", `<div class="grid two">
+  games: () => page("Игровая", "Выбирай, во что сыграть.", `<div class="games-balance"><span>ИГРОВОЙ БАЛАНС</span><strong>${state.hiddenBalance ? "••••••" : format(state.balance)}</strong><small>DC · минимальная ставка 5</small></div><div class="section-title"><h2>Игры</h2></div><div class="grid two">
     ${card("▦", "Слоты", "Классические барабаны", "play:slots")}
     ${card("◉", "Рулетка", "Красное, чёрное или зелёное", "play:roulette")}
     ${card("◆", "Кубик", "Угадай число", "play:dice")}
@@ -117,6 +117,12 @@ function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (cha
 
 function render() {
   const view = state.view;
+  updateShell();
+  const section = view.startsWith("play:") || ["mines-active", "crash-active"].includes(view) ? "games" : view.startsWith("case:") || view === "pandora" ? "cases" : view;
+  const navItems = [...document.querySelectorAll(".nav-item")];
+  navItems.forEach((node) => node.classList.toggle("active", node.dataset.view === section));
+  const activeIndex = navItems.findIndex((node) => node.dataset.view === section);
+  if (activeIndex >= 0) document.querySelector(".bottom-nav").style.setProperty("--active-index", activeIndex);
   if (view.startsWith("admin") && !state.isAdmin) { state.view = "home"; return render(); }
   if (view === "mines-active") return renderMines();
   if (view === "crash-active") return renderCrash();
@@ -124,13 +130,16 @@ function render() {
   if (view.startsWith("case:")) return renderCase(view.split(":")[1]);
   if (view === "pandora") return renderPandora();
   document.querySelector("#screen").innerHTML = views[view] ? views[view]() : views.home();
-  document.querySelectorAll(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   if (view === "top" && !state.top.length) loadTop();
   if (view === "stats" && !state.stats) loadStats();
   if (["jackpot", "jackpot-top", "jackpot-winners"].includes(view) && state.jackpotTop === null) loadJackpot();
   if (view.startsWith("admin") && state.isAdmin && !state.adminOverview) loadAdminOverview();
   if (view === "mini-events" && !state.miniEventLoaded) loadMiniEvent();
   if (view === "duels" && !state.duelsLoaded) loadDuels();
+}
+function updateShell() {
+  document.querySelector("#header-name").innerHTML = state.displayName;
+  document.querySelector("#header-balance").textContent = state.hiddenBalance ? "•••" : format(state.balance);
 }
 function renderGame(game) {
   const names={slots:"Слоты",roulette:"Рулетка",dice:"Кубик",mines:"Мины",coinflip:"Орёл и решка",scratch:"Скретч-карты",lottery:"Лотерея 5×5",crash:"Crash"};
@@ -148,6 +157,15 @@ function renderGame(game) {
 }
 function renderCase(id) { const data={blood:["BLOOD","5 000 DC"],pantera:["PANTERA","10 000 DC"],spider_man:["SPIDER MAN","7 500 DC"]}[id]; document.querySelector("#screen").innerHTML = page(data[0], "Награды определяются шансами, настроенными в боте.", `<div class="modal"><h2>${data[0]}</h2><p>Стоимость: ${data[1]}. Среди наград — D-COINS, подарки и бустеры.</p><div class="modal-actions">${btn("Открыть кейс", "case-open", "primary")}${btn("Все кейсы", "cases")}</div></div>`); }
 function renderPandora() { document.querySelector("#screen").innerHTML = page("Ящик Пандоры", "Бесплатный ящик можно открыть раз в 5 дней.", `<div class="modal"><h2>Ящик Пандоры</h2><p>Внутри могут быть D-COINS, ключи кейсов, подарки и бустеры.</p><div class="modal-actions">${btn("Открыть бесплатно", "pandora-open", "primary")}${btn("К кейсам", "cases")}</div></div>`); }
+
+let navigationTimer;
+function animateNavigation() {
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelector("#screen").animate?.(
+    [{ opacity: 0.45, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }],
+    { duration: 270, easing: "cubic-bezier(.2,.8,.2,1)" }
+  );
+}
 
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-view], [data-action]");
@@ -198,7 +216,23 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "support-reply") { runAdminAction("support_reply", undefined, undefined, Number(target.dataset.userId)); return; }
   if (target.dataset.action === "support-close-user") { runAdminAction("support_close", undefined, undefined, Number(target.dataset.userId)); return; }
   if (target.dataset.action === "support-revoke-user") { runAdminAction("revoke_support", undefined, undefined, Number(target.dataset.userId)); return; }
-  if (target.dataset.view) { state.view = target.dataset.view; render(); return; }
+  if (target.dataset.view) {
+    const nextView = target.dataset.view;
+    if (nextView === state.view) return;
+    clearTimeout(navigationTimer);
+    const navigate = () => {
+      state.view = nextView;
+      render();
+      window.scrollTo(0, 0);
+      animateNavigation();
+    };
+    if (event.detail && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      navigationTimer = setTimeout(navigate, 95);
+    } else {
+      navigate();
+    }
+    return;
+  }
 });
 
 async function api(path, options = {}) {
@@ -219,6 +253,7 @@ async function syncProfile() {
   state.jackpot = data.jackpot || null;
   state.supportAccess = Boolean(data.support_access);
   state.booster = data.active_booster ? (state.boosters.find((x) => x.id === data.active_booster)?.title || data.active_booster) : null;
+  updateShell();
 }
 function showNotice(title, message, actions = `${btn("На главную", "home", "primary")}`) {
   document.querySelector("#screen").innerHTML = page(title, message, `<div class="modal"><div class="modal-actions">${actions}</div></div>`);
