@@ -668,6 +668,10 @@ class Store:
             for sql in SCHEMA:
                 if "inbox" not in sql and "action_randomness" not in sql:
                     await c.execute(sql)
+            async with c.execute("PRAGMA table_info(notices)") as cursor:
+                notice_columns = {row[1] for row in await cursor.fetchall()}
+            if "last_error" not in notice_columns:
+                await c.execute("ALTER TABLE notices ADD COLUMN last_error TEXT")
             async with c.execute(
                 "SELECT COUNT(*) FROM coins WHERE balance IS NULL\n                OR typeof(balance)<>'integer' OR balance<0 OR balance>9000000000000000\n                OR visual_balance IS NULL OR typeof(visual_balance)<>'integer'\n                OR visual_balance<0 OR visual_balance>9000000000000000"
             ) as cursor:
@@ -861,6 +865,15 @@ class Database:
                 "INSERT OR IGNORE INTO bot_users(user_id,user_name,started_at) SELECT c.user_id, COALESCE((SELECT u.user_name FROM user_stats u WHERE u.user_id=c.user_id ORDER BY u.chat_id LIMIT 1), CAST(c.user_id AS TEXT)), ? FROM coins c WHERE c.user_id>0",
                 (time.time(),),
             )
+            # The standard polling entry point uses Database.init(), not Store.init().
+            # Initialize its delivery tables before starting the notice and gift workers.
+            for sql in SCHEMA:
+                if "inbox" not in sql and "action_randomness" not in sql:
+                    await db.execute(sql)
+            async with db.execute("PRAGMA table_info(notices)") as cur:
+                notice_columns = {row[1] for row in await cur.fetchall()}
+            if "last_error" not in notice_columns:
+                await db.execute("ALTER TABLE notices ADD COLUMN last_error TEXT")
             await db.commit()
 
     async def ban_user(self, user_id: int, reason: str = "") -> None:
@@ -3381,11 +3394,12 @@ async def queue_notice(path, chat_id, text):
     if not chat_id:
         return
     async with connect(path) as c:
-        await c.execute(
+        cursor = await c.execute(
             "INSERT INTO notices(chat_id,text,created) VALUES (?,?,?)",
             (str(chat_id), text, time.time()),
         )
         await c.commit()
+        return cursor.lastrowid
 
 
 async def notice_worker(bot, path):
@@ -3400,20 +3414,23 @@ async def notice_worker(bot, path):
             await asyncio.sleep(0.5)
             continue
         status = "sent"
+        error_text = None
         try:
             chat_id = int(row[1]) if row[1].lstrip("-").isdigit() else row[1]
             await bot.send_message(chat_id, row[2])
-        except (TelegramForbiddenError, TelegramBadRequest):
+        except (TelegramForbiddenError, TelegramBadRequest) as exc:
             status = "failed"
+            error_text = f"{type(exc).__name__}: {exc}"[:300]
             logger.exception("Permanent notification failure %s", row[0])
-        except Exception:
+        except Exception as exc:
             status = "pending" if row[3] < 7 else "failed"
+            error_text = f"{type(exc).__name__}: {exc}"[:300]
             logger.exception("Notification failure %s", row[0])
         async with write_lock:
             async with aiosqlite.connect(path) as c:
                 await c.execute(
-                    "UPDATE notices SET status=?,attempts=attempts+1,next_attempt=? WHERE id=?",
-                    (status, time.time() + min(3600, 2 ** (row[3] + 1)), row[0]),
+                    "UPDATE notices SET status=?,attempts=attempts+1,next_attempt=?,last_error=? WHERE id=?",
+                    (status, time.time() + min(3600, 2 ** (row[3] + 1)), error_text, row[0]),
                 )
                 await c.commit()
 
@@ -3570,8 +3587,12 @@ async def send_log(bot: Bot, text: str) -> None:
     await queue_notice(db.path, LOG_CHAT_ID, text)
 
 
+def game_log_destination() -> int:
+    return GAME_LOG_CHAT_ID or LOG_CHAT_ID or ADMIN_ID
+
+
 async def send_game_log(bot: Bot, text: str) -> None:
-    await queue_notice(db.path, GAME_LOG_CHAT_ID or LOG_CHAT_ID, text)
+    await queue_notice(db.path, game_log_destination(), text)
 
 
 async def log_miniapp_game(
@@ -3595,7 +3616,7 @@ async def log_miniapp_game(
         lines.append(f"⚡ Бустер: {BOOSTERS[booster][0]}")
     lines.append(f"🪙 Баланс: {balance:,} DC")
     try:
-        await queue_notice(db.path, GAME_LOG_CHAT_ID or LOG_CHAT_ID, "\n".join(lines).replace(",", " "))
+        await queue_notice(db.path, game_log_destination(), "\n".join(lines).replace(",", " "))
     except Exception:
         logger.exception("Could not queue Mini App game log for user %s", user["id"])
 
@@ -9075,16 +9096,60 @@ async def runtime_issues(message: Message):
                 "Подарок",
             ),
             (
-                "SELECT id,status,attempts FROM notices WHERE status='failed' LIMIT 50",
+                "SELECT id,status,attempts,last_error FROM notices WHERE status='failed' LIMIT 50",
                 "Уведомление",
             ),
             ("SELECT charge,uid,created FROM payment_review LIMIT 50", "Платёж"),
         ]:
             async with c.execute(sql) as cursor:
                 lines.extend((f"{label}: {tuple(row)}" for row in await cursor.fetchall()))
-    async with aiosqlite.connect(str(db.path) + ".inbox") as c:
-        async with c.execute("SELECT id,status,error FROM inbox WHERE status='failed' LIMIT 50") as cursor:
-            lines.extend((f"Update: {tuple(row)}" for row in await cursor.fetchall()))
+    inbox_path = Path(str(db.path) + ".inbox")
+    if inbox_path.is_file():
+        async with aiosqlite.connect(inbox_path) as c:
+            async with c.execute("SELECT id,status,error FROM inbox WHERE status='failed' LIMIT 50") as cursor:
+                lines.extend((f"Update: {tuple(row)}" for row in await cursor.fetchall()))
+    await message.answer("\n".join(lines))
+
+
+async def log_status(message: Message):
+    if message.from_user.id != ADMIN_ID or message.chat.type != "private":
+        return
+    destination = game_log_destination()
+    parts = (message.text or "").split()
+    test_requested = len(parts) == 2 and parts[1].lower() == "test"
+    if len(parts) > 1 and not test_requested:
+        await message.answer("Использование: /logstatus или /logstatus test")
+        return
+    test_id = None
+    if test_requested:
+        test_id = await queue_notice(db.path, destination, "Тест игрового лога: /logstatus test")
+    async with connect(db.path) as c:
+        async with c.execute(
+            "SELECT status,COUNT(*) FROM notices WHERE chat_id=? GROUP BY status",
+            (str(destination),),
+        ) as cursor:
+            counts = dict(await cursor.fetchall())
+        async with c.execute(
+            "SELECT id,status,attempts,last_error FROM notices WHERE chat_id=? ORDER BY id DESC LIMIT 5",
+            (str(destination),),
+        ) as cursor:
+            recent = await cursor.fetchall()
+    lines = [
+        f"Игровые логи → {destination}",
+        f"Источник: {'GAME_LOG_CHAT_ID' if GAME_LOG_CHAT_ID else 'LOG_CHAT_ID' if LOG_CHAT_ID else 'ADMIN_ID'}",
+        f"В очереди: {counts.get('pending', 0)}; отправлено: {counts.get('sent', 0)}; ошибок: {counts.get('failed', 0)}",
+    ]
+    if test_requested:
+        lines.append(f"Тестовая запись #{test_id} поставлена в очередь. Проверьте /logstatus через несколько секунд.")
+    if recent:
+        lines.append("Последние записи:")
+        lines.extend(
+            f"#{notice_id}: {status}, попыток {attempts}"
+            + (f", ошибка: {error}" if error else "")
+            for notice_id, status, attempts, error in recent
+        )
+    else:
+        lines.append("Записей для этого чата пока нет.")
     await message.answer("\n".join(lines))
 
 
@@ -10557,6 +10622,7 @@ async def main():
     dp = Dispatcher(disable_fsm=True)
     dp.message.register(payments_support, Command("paysupport"))
     dp.message.register(runtime_issues, Command("runtimeissues"))
+    dp.message.register(log_status, Command("logstatus"))
     dp.message.register(resolve_gift, Command("giftresolve"))
     dp.include_router(router)
     dp.message.outer_middleware(Guard())
