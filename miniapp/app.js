@@ -242,18 +242,30 @@ async function api(path, options = {}) {
 }
 async function syncProfile() {
   if (!state.initData) return;
-  const data = await api("/api/me");
-  state.displayName = escapeHtml(data.user.name);
-  state.balance = data.balance.shown;
-  state.hiddenBalance = data.balance.hidden;
-  state.isAdmin = Boolean(data.is_admin);
-  state.boosters = data.boosters || [];
-  state.caseKeys = data.case_keys || {};
-  state.pandoraRemaining = Number(data.pandora_remaining || 0);
-  state.jackpot = data.jackpot || null;
-  state.supportAccess = Boolean(data.support_access);
-  state.booster = data.active_booster ? (state.boosters.find((x) => x.id === data.active_booster)?.title || BOOSTERS[data.active_booster]?.[0] || data.active_booster) : null;
-  updateShell();
+  try {
+    const data = await api("/api/me");
+    if (data.is_banned) {
+      showBanScreen();
+      throw new Error("Banned");
+    }
+    state.displayName = escapeHtml(data.user.name);
+    state.balance = data.balance.shown;
+    state.hiddenBalance = data.balance.hidden;
+    state.isAdmin = Boolean(data.is_admin);
+    state.boosters = data.boosters || [];
+    state.caseKeys = data.case_keys || {};
+    state.pandoraRemaining = Number(data.pandora_remaining || 0);
+    state.jackpot = data.jackpot || null;
+    state.supportAccess = Boolean(data.support_access);
+    state.booster = data.active_booster ? (state.boosters.find((x) => x.id === data.active_booster)?.title || BOOSTERS[data.active_booster]?.[0] || data.active_booster) : null;
+    updateShell();
+  } catch (error) {
+    if (error.message.includes("403") || error.message.includes("Banned")) {
+      showBanScreen();
+      throw new Error("Banned");
+    }
+    throw error;
+  }
 }
 function showNotice(title, message, actions = `${btn("На главную", "home", "primary")}`) {
   document.querySelector("#screen").innerHTML = page(title, message, `<div class="modal"><div class="modal-actions">${actions}</div></div>`);
@@ -675,7 +687,25 @@ async function bootstrap() {
   state.initData = webApp?.initData || "";
   webApp?.ready();
   webApp?.expand();
-  try { await syncProfile(); } catch { /* local design preview stays usable without Telegram */ }
+  try { 
+    await syncProfile(); 
+  } catch (error) { 
+    if (error.message === "Banned") return;
+    /* local design preview stays usable without Telegram */ 
+  }
   render();
 }
+
+function showBanScreen() {
+  document.body.innerHTML = `
+    <div style="display:grid; place-items:center; height:100vh; text-align:center; padding:20px; background: var(--bg); color: var(--text);">
+      <div>
+        <div style="font-size: 56px; margin-bottom: 16px;">🚫</div>
+        <h2 style="margin-bottom: 8px;">Доступ закрыт</h2>
+        <p style="color: var(--muted); line-height: 1.5;">Ваш аккаунт заблокирован. Игровые функции недоступны.</p>
+      </div>
+    </div>
+  `;
+}
+
 bootstrap();
