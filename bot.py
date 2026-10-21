@@ -10743,3 +10743,78 @@ if __name__ == "__main__":
         maintenance_main()
     else:
         asyncio.run(main())
+
+from aiohttp import web
+from aiogram.utils.web_app import safe_parse_webapp_init_data
+import os
+import asyncio
+
+# Обработчик API для Mini App
+async def api_me(request):
+    # Получаем строку авторизации от Mini App
+    init_data = request.headers.get("X-Telegram-Init-Data", "")
+    
+    try:
+        # aiogram сам проверяет подпись через токен бота
+        parsed_data = safe_parse_webapp_init_data(token=TOKEN, init_data=init_data)
+        user_id = parsed_data.user.id
+        user_name = parsed_data.user.first_name
+    except ValueError:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    # 🔴 ТА САМАЯ ПРОВЕРКА НА БАН
+    if await db.is_banned(user_id):
+        return web.json_response({"is_banned": True}, status=403)
+        
+    # Если не в бане — достаем данные пользователя из БД
+    chance, msg_count, last_bonus = await db.get_user(user_id, MAIN_CHAT_ID)
+    displayed_balance, real_balance, visual_balance = await db.get_balance_details(user_id)
+    is_hidden = await db.is_balance_hidden(user_id)
+    is_admin = (user_id == ADMIN_ID)
+    
+    # Отдаем данные в формате, который ждет app.js
+    return web.json_response({
+        "is_banned": False,
+        "user": {"id": user_id, "name": user_name},
+        "balance": {"shown": displayed_balance, "hidden": is_hidden},
+        "is_admin": is_admin,
+        "boosters": [], # Сюда можно добавить загрузку бустеров из БД
+        "case_keys": {},
+        "pandora_remaining": 0,
+        "support_access": await db.has_support_access(user_id)
+    })
+
+# Раздача главного файла index.html
+async def index_handler(request):
+    return web.FileResponse('./miniapp/index.html')
+
+# Главная функция запуска
+async def main():
+    await db.init() # Инициализация вашей БД
+    
+    bot = Bot(token=TOKEN)
+    dp = Dispatcher()
+    dp.include_router(router)
+    
+    # Настройка веб-сервера
+    app = web.Application()
+    app.router.add_get('/api/me', api_me)
+    
+    # Раздача статики (HTML, JS, CSS)
+    app.router.add_get('/', index_handler)
+    app.router.add_static('/', path='./miniapp', name='static')
+    
+    # Запуск сервера на порту Railway
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", 8080)) # Railway сам передает нужный порт
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    
+    print(f"Веб-сервер запущен на порту {port}")
+    
+    # Параллельный запуск бота
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
