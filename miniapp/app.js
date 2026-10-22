@@ -187,9 +187,19 @@ function renderGame(game) {
     document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
     return;
   }
+  if (game === "dice") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Угадай число от 1 до 6 и брось кубик.", `<div class="dice-game">
+      <div class="dice-stage"><div class="dice-cube" data-dice-face aria-live="polite">⚄</div></div>
+      <p class="dice-caption">Угадай результат броска · выплата ×5.7</p>
+      <div class="section"><label for="game-option">Твоё число</label><select id="game-option" class="input">${Array.from({length:6},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join("")}</select></div>
+      <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
+      <div class="modal-actions"><button class="button primary wide" data-action="dice-roll">Бросить кубик</button>${btn("К играм", "games")}</div>
+    </div>`);
+    return;
+  }
   if (game === "coinflip") {
     document.querySelector("#screen").innerHTML = page(names[game], "Выбери сторону и подбрось фишку.", `<div class="coin-game">
-      <div class="coin-stage"><div class="coin-3d" data-coin><div class="coin-face coin-heads">D</div><div class="coin-face coin-tails">D</div></div></div>
+      <div class="coin-stage"><div class="coin-3d" data-coin><div class="coin-face coin-heads">D</div><div class="coin-face coin-tails"><svg class="coin-emblem" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="34" fill="none" stroke="currentColor" stroke-width="5"/><path d="M34 39h32M34 50h24M34 61h32" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round"/></svg></div></div></div>
       <p class="coin-caption">Точное попадание · выплата ×1.9</p>
       <div class="section"><label for="game-option">Сторона фишки</label><select id="game-option" class="input"><option value="heads">Орёл</option><option value="tails">Решка</option></select></div>
       <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
@@ -258,6 +268,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "mines-cashout") { minesAction("cashout"); return; }
   if (target.dataset.action === "slot-spin") { playGame("slots"); return; }
   if (target.dataset.action === "coin-flip") { playGame("coinflip"); return; }
+  if (target.dataset.action === "dice-roll") { playGame("dice"); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
@@ -654,6 +665,31 @@ async function animateSlotReels(result) {
   })));
   document.querySelector(".slot-machine")?.classList.remove("is-spinning");
 }
+async function animateDiceRoll(result) {
+  const die = document.querySelector("[data-dice-face]");
+  const button = document.querySelector('[data-action="dice-roll"]');
+  if (!die) return;
+  const match = String(result || "").match(/([1-6])/);
+  const value = match ? Number(match[1]) : 1;
+  const faces = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (button) { button.disabled = true; button.textContent = "Кубик катится…"; }
+  if (reducedMotion) { die.textContent = faces[value - 1]; die.classList.add("dice-landed"); return; }
+  die.classList.remove("dice-landed");
+  die.classList.add("dice-rolling");
+  const endAt = performance.now() + 1250;
+  await new Promise(resolve => {
+    const tick = now => {
+      die.textContent = faces[Math.floor(Math.random() * faces.length)];
+      if (now >= endAt) { resolve(); return; }
+      window.setTimeout(() => requestAnimationFrame(tick), 65);
+    };
+    requestAnimationFrame(tick);
+  });
+  die.textContent = faces[value - 1];
+  die.classList.remove("dice-rolling");
+  die.classList.add("dice-landed");
+}
 async function animateCoinFlip(result) {
   const coin = document.querySelector("[data-coin]");
   const button = document.querySelector('[data-action="coin-flip"]');
@@ -684,6 +720,7 @@ async function playGame(game) {
     const data = await api("/api/game/play", { method: "POST", body: JSON.stringify({ game, bet, option }) });
     if (game === "slots") await animateSlotReels(data.result);
     if (game === "coinflip") await animateCoinFlip(data.result);
+    if (game === "dice") await animateDiceRoll(data.result);
     await syncProfile().catch(() => {});
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
