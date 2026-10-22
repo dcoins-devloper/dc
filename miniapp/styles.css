@@ -473,3 +473,26 @@ html[data-theme="dark"] .dice-cube { border-color:rgba(139,198,158,.3); backgrou
 html[data-theme="dark"] .roulette-game { border-color:rgba(139,198,158,.22); background:linear-gradient(145deg,#173522,#0f2117); }
 @media(max-width:360px) { .roulette-options { gap:5px; } .roulette-choice { font-size:11px; } }
 @media(prefers-reduced-motion:reduce) { .roulette-wheel.roulette-spinning { transition:none; } }
+
+
+/* Crash flight scene: movement reflects the server-returned multiplier/state. */
+.crash-flight { padding:14px 16px 12px; margin-bottom:16px; border:1px solid var(--line-strong); border-radius:24px; background:linear-gradient(145deg,var(--surface-2),var(--surface)); overflow:hidden; }
+.crash-sky { position:relative; height:190px; border-radius:18px; overflow:hidden; background:radial-gradient(circle at 80% 15%,rgba(54,216,137,.2),transparent 24%),linear-gradient(155deg,#102b20,#173f2e 58%,#0d2118); }
+.crash-sky::before { content:""; position:absolute; left:-10%; right:-10%; bottom:-48%; height:90%; border:1px solid rgba(94,225,158,.22); border-radius:50%; transform:rotate(-18deg); box-shadow:0 -14px 0 rgba(94,225,158,.025),0 -28px 0 rgba(94,225,158,.025); }
+.crash-star { position:absolute; color:#c8f7d8; opacity:.8; animation:crash-twinkle 1.8s ease-in-out infinite alternate; }
+.crash-star.star-one { top:20%; left:19%; font-size:19px; }
+.crash-star.star-two { top:48%; left:58%; font-size:27px; }
+.crash-star.star-three { top:16%; right:18%; font-size:20px; }
+.crash-trail { position:absolute; left:0; bottom:19%; height:3px; border-radius:3px; background:linear-gradient(90deg,transparent,#43e38e); box-shadow:0 0 14px rgba(67,227,142,.5); transform:rotate(-19deg); transform-origin:left center; transition:width .6s cubic-bezier(.2,.8,.2,1); }
+.crash-rocket { position:absolute; bottom:calc(15% + var(--lift, 0px)); transform:translate(-50%,0) rotate(-24deg); font-size:37px; filter:drop-shadow(0 5px 7px rgba(0,0,0,.25)); animation:crash-hover 1.1s ease-in-out infinite alternate; transition:left .6s cubic-bezier(.2,.8,.2,1),bottom .6s ease; }
+.crash-flight-label { display:flex; justify-content:space-between; gap:10px; padding:10px 2px 0; color:var(--muted); font-size:10px; font-weight:800; letter-spacing:.12em; }
+.crash-multiplier { margin-top:0; }
+.crash-burst .crash-sky { background:radial-gradient(circle at 80% 18%,rgba(255,100,100,.25),transparent 28%),linear-gradient(155deg,#35191d,#502229 58%,#251316); }
+.crash-burst .crash-rocket { animation:crash-explode .45s ease-out both; transform:translate(-50%,0) rotate(0); }
+.crash-burst .crash-trail { background:linear-gradient(90deg,transparent,#ff6878); box-shadow:0 0 14px rgba(255,104,120,.4); }
+.crash-success .crash-sky { background:radial-gradient(circle at 80% 15%,rgba(54,216,137,.28),transparent 28%),linear-gradient(155deg,#103d28,#1b5b3c 58%,#0d2c1c); }
+@keyframes crash-hover { from { margin-top:0; } to { margin-top:-8px; } }
+@keyframes crash-twinkle { from { opacity:.3; transform:scale(.8); } to { opacity:1; transform:scale(1.15); } }
+@keyframes crash-explode { 0% { transform:translate(-50%,0) scale(.7); } 55% { transform:translate(-50%,-12px) scale(1.35); } 100% { transform:translate(-50%,0) scale(1); } }
+html[data-theme="dark"] .crash-flight { border-color:rgba(139,198,158,.22); background:linear-gradient(145deg,#173522,#0f2117); }
+@media(prefers-reduced-motion:reduce) { .crash-star,.crash-rocket,.crash-burst .crash-rocket { animation:none; } .crash-trail,.crash-rocket { transition:none; } }
