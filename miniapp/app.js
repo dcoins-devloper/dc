@@ -719,15 +719,28 @@ async function animateScratch(result) {
   const tiles = [...document.querySelectorAll("[data-scratch-tile]")];
   const button = document.querySelector('[data-action="scratch-reveal"]');
   if (!tiles.length) return;
-  const symbols = String(result || "").trim().split(/\s+/);
+  const symbols = String(result || "").trim().split(/\s+/).filter(Boolean);
   const fallback = ["🍀", "💎", "⭐", "🍒", "🔔", "🪙"];
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  if (button) { button.disabled = true; button.textContent = "Открываем карту…"; }
-  for (let i=0;i<tiles.length;i++) {
-    if (!reducedMotion) { tiles[i].classList.add("scratch-revealing"); for (let n=0;n<5;n++) { tiles[i].textContent = fallback[Math.floor(Math.random()*fallback.length)]; await new Promise(resolve => window.setTimeout(resolve, 65)); } }
-    tiles[i].textContent = symbols[i] || symbols[0] || "✦";
-    tiles[i].classList.remove("scratch-revealing"); tiles[i].classList.add("scratch-revealed");
+  if (button) { button.disabled = true; button.textContent = "Стираем защитный слой…"; }
+  for (let i = 0; i < tiles.length; i++) {
+    const tile = tiles[i];
+    tile.setAttribute("aria-label", `Поле ${i + 1}: открывается`);
+    tile.classList.add("scratch-revealing");
+    if (!reducedMotion) {
+      for (let n = 0; n < 7; n++) {
+        tile.textContent = fallback[Math.floor(Math.random() * fallback.length)];
+        await new Promise(resolve => window.setTimeout(resolve, 55));
+      }
+      await new Promise(resolve => window.setTimeout(resolve, 90));
+    }
+    tile.textContent = symbols[i] || symbols[0] || "✦";
+    tile.classList.remove("scratch-revealing");
+    tile.classList.add("scratch-revealed");
+    tile.setAttribute("aria-label", `Поле ${i + 1}: ${tile.textContent}`);
+    if (!reducedMotion && i < tiles.length - 1) await new Promise(resolve => window.setTimeout(resolve, 75));
   }
+  if (button) button.textContent = "Карта открыта";
 }
 async function animateRoulette(result) {
   const wheel = document.querySelector("[data-roulette-wheel]");
