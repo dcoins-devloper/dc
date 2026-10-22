@@ -187,6 +187,20 @@ function renderGame(game) {
     document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
     return;
   }
+  if (game === "slots") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Три барабана. Один шанс.", `<div class="slot-machine">
+      <div class="slot-machine-head"><strong>D-COINS / 03</strong><span>Три знака. Одна линия.</span></div>
+      <div class="slot-reels" aria-label="Игровые барабаны">
+        <div class="slot-reel"><span data-slot-reel="0">🍋</span></div>
+        <div class="slot-reel"><span data-slot-reel="1">7️⃣</span></div>
+        <div class="slot-reel"><span data-slot-reel="2">🍇</span></div>
+      </div>
+      <p class="slot-caption">Собери три одинаковых символа. Три семёрки дают самую большую выплату.</p>
+      <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
+      <div class="modal-actions"><button class="button primary wide" data-action="slot-spin">Запустить барабаны</button>${btn("К играм", "games")}</div>
+    </div>`);
+    return;
+  }
   const options={slots:[["spin","Крутить барабаны"]],roulette:[["red","🔴 Красное"],["black","⚫ Чёрное"],["green","🟢 Зелёное · ×3"]],dice:[["1","1"],["2","2"],["3","3"],["4","4"],["5","5"],["6","6"]],coinflip:[["heads","🦅 Орёл"],["tails","🔵 Решка"]],scratch:[["reveal","Открыть скретч-карту"]],lottery:Array.from({length:25},(_,i)=>[String(i),`Билет ${i+1}`])}[game];
   if (!options) { document.querySelector("#screen").innerHTML = page(names[game], "Этот режим переносится следующим — остальные игры уже доступны в боте.", `${btn("К играм", "games")}`); return; }
   document.querySelector("#screen").innerHTML = page(names[game], "Минимальная ставка — 5 DC.", `<div class="modal"><h2>${names[game]}</h2><p>${state.booster ? `Активный бустер: ${state.booster}.` : "Бустер не выбран."}</p><div class="section"><select id="game-option" class="input">${options.map(([value,label])=>`<option value="${value}">${label}</option>`).join("")}</select></div><div class="section"><input id="game-bet" class="input" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="play-game" data-game="${game}">Начать игру</button>${btn("К играм", "games")}</div></div>`);
@@ -232,6 +246,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "crash-cashout") { crashAction("cashout"); return; }
   if (target.dataset.action === "mines-cell") { minesAction("cell", Number(target.dataset.cell)); return; }
   if (target.dataset.action === "mines-cashout") { minesAction("cashout"); return; }
+  if (target.dataset.action === "slot-spin") { playGame("slots"); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
@@ -601,16 +616,49 @@ async function setPrivacy(hidden) {
     render();
   } catch { alert("Не удалось изменить настройки баланса."); }
 }
+async function animateSlotReels(result) {
+  const reels = [...document.querySelectorAll("[data-slot-reel]")];
+  if (reels.length !== 3) return;
+  const symbols = String(result || "").trim().split(/\\s+/).slice(0, 3);
+  const fallback = ["🍋", "🍇", "🍒", "7️⃣", "🔔", "⭐"];
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const durations = reducedMotion ? [120, 180, 240] : [850, 1250, 1650];
+  document.querySelector(".slot-machine")?.classList.add("is-spinning");
+  const button = document.querySelector('[data-action="slot-spin"]');
+  if (button) { button.disabled = true; button.textContent = "Барабаны вращаются…"; }
+  await Promise.all(reels.map((reel, index) => new Promise(resolve => {
+    const start = performance.now();
+    const tick = () => {
+      const elapsed = performance.now() - start;
+      if (elapsed >= durations[index]) {
+        reel.textContent = symbols[index] || fallback[index];
+        reel.closest(".slot-reel")?.classList.add("slot-stopped");
+        resolve();
+        return;
+      }
+      reel.textContent = fallback[Math.floor(Math.random() * fallback.length)];
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  })));
+  document.querySelector(".slot-machine")?.classList.remove("is-spinning");
+}
 async function playGame(game) {
   const bet = Number(document.querySelector("#game-bet")?.value);
-  const option = document.querySelector("#game-option")?.value;
+  const option = document.querySelector("#game-option")?.value || (game === "slots" ? "spin" : undefined);
   if (!Number.isInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
+  const slotButton = document.querySelector('[data-action="slot-spin"]');
+  if (slotButton) slotButton.disabled = true;
   try {
     const data = await api("/api/game/play", { method: "POST", body: JSON.stringify({ game, bet, option }) });
+    if (game === "slots") await animateSlotReels(data.result);
     await syncProfile().catch(() => {});
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
-  } catch (error) { alert(error.message || "Не удалось завершить игру."); }
+  } catch (error) {
+    if (slotButton) slotButton.disabled = false;
+    alert(error.message || "Не удалось завершить игру.");
+  }
 }
 async function loadJackpot() {
   try {
