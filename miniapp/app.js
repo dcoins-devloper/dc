@@ -249,7 +249,7 @@ function animateNavigation() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-view], [data-action]");
+  const target = event.target.closest("[data-view], [data-action], [data-roulette-choice]");
   if (!target) return;
   if (target.dataset.action === "theme-toggle") {
     applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
