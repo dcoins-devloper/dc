@@ -187,6 +187,16 @@ function renderGame(game) {
     document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
     return;
   }
+  if (game === "coinflip") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Выбери сторону и подбрось фишку.", `<div class="coin-game">
+      <div class="coin-stage"><div class="coin-3d" data-coin><div class="coin-face coin-heads">Z</div><div class="coin-face coin-tails">D</div></div></div>
+      <p class="coin-caption">Точное попадание · выплата ×1.9</p>
+      <div class="section"><label for="game-option">Сторона фишки</label><select id="game-option" class="input"><option value="heads">Орёл</option><option value="tails">Решка</option></select></div>
+      <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
+      <div class="modal-actions"><button class="button primary wide" data-action="coin-flip">Подбросить фишку</button>${btn("К играм", "games")}</div>
+    </div>`);
+    return;
+  }
   if (game === "slots") {
     document.querySelector("#screen").innerHTML = page(names[game], "Три барабана. Один шанс.", `<div class="slot-machine">
       <div class="slot-machine-head"><strong>D-COINS / 03</strong><span>Три знака. Одна линия.</span></div>
@@ -247,6 +257,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "mines-cell") { minesAction("cell", Number(target.dataset.cell)); return; }
   if (target.dataset.action === "mines-cashout") { minesAction("cashout"); return; }
   if (target.dataset.action === "slot-spin") { playGame("slots"); return; }
+  if (target.dataset.action === "coin-flip") { playGame("coinflip"); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
@@ -643,6 +654,26 @@ async function animateSlotReels(result) {
   })));
   document.querySelector(".slot-machine")?.classList.remove("is-spinning");
 }
+async function animateCoinFlip(result) {
+  const coin = document.querySelector("[data-coin]");
+  const button = document.querySelector('[data-action="coin-flip"]');
+  if (!coin) return;
+  const heads = String(result || "").includes("Орёл");
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  coin.classList.remove("coin-landed", "coin-heads-result", "coin-tails-result");
+  if (button) { button.disabled = true; button.textContent = "Фишка вращается…"; }
+  if (reducedMotion) {
+    coin.classList.add(heads ? "coin-heads-result" : "coin-tails-result");
+    return;
+  }
+  coin.classList.add("coin-flipping");
+  await new Promise(resolve => {
+    coin.addEventListener("animationend", resolve, { once: true });
+    window.setTimeout(resolve, 1500);
+  });
+  coin.classList.remove("coin-flipping");
+  coin.classList.add(heads ? "coin-heads-result" : "coin-tails-result", "coin-landed");
+}
 async function playGame(game) {
   const bet = Number(document.querySelector("#game-bet")?.value);
   const option = document.querySelector("#game-option")?.value || (game === "slots" ? "spin" : undefined);
@@ -652,6 +683,7 @@ async function playGame(game) {
   try {
     const data = await api("/api/game/play", { method: "POST", body: JSON.stringify({ game, bet, option }) });
     if (game === "slots") await animateSlotReels(data.result);
+    if (game === "coinflip") await animateCoinFlip(data.result);
     await syncProfile().catch(() => {});
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
