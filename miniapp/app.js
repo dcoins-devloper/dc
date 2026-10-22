@@ -190,7 +190,7 @@ function renderGame(game) {
   if (game === "scratch") {
     document.querySelector("#screen").innerHTML = page(names[game], "Сотри три поля и проверь, совпали ли символы.", `<div class="scratch-game">
       <div class="scratch-header"><span>D-COINS / SCRATCH</span><span>3 поля</span></div>
-      <div class="scratch-board" data-scratch-board><div class="scratch-tile" data-scratch-tile>?</div><div class="scratch-tile" data-scratch-tile>?</div><div class="scratch-tile" data-scratch-tile>?</div></div>
+      <div class="scratch-board" data-scratch-board>${Array.from({length:9},()=>`<div class="scratch-tile" data-scratch-tile>?</div>`).join("")}</div>
       <p class="scratch-caption">Нажми «Открыть карту», чтобы увидеть результат.</p>
       <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
       <div class="modal-actions"><button class="button primary wide" data-action="scratch-reveal">Открыть скретч-карту</button>${btn("К играм", "games")}</div>
