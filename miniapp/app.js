@@ -190,7 +190,7 @@ function renderGame(game) {
   if (game === "dice") {
     document.querySelector("#screen").innerHTML = page(names[game], "Угадай число от 1 до 6 и брось кубик.", `<div class="dice-game">
       <div class="dice-stage"><div class="dice-cube" data-dice-face aria-live="polite">⚄</div></div>
-      <p class="dice-caption">Угадай результат броска · выплата ×5.7</p>
+      <p class="dice-caption">Угадай результат броска · выплата ×2</p>
       <div class="section"><label for="game-option">Твоё число</label><select id="game-option" class="input">${Array.from({length:6},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join("")}</select></div>
       <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
       <div class="modal-actions"><button class="button primary wide" data-action="dice-roll">Бросить кубик</button>${btn("К играм", "games")}</div>
