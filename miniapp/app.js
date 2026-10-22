@@ -619,7 +619,7 @@ async function setPrivacy(hidden) {
 async function animateSlotReels(result) {
   const reels = [...document.querySelectorAll("[data-slot-reel]")];
   if (reels.length !== 3) return;
-  const symbols = String(result || "").trim().split(/\\s+/).slice(0, 3);
+  const symbols = String(result || "").trim().split(/\s+/).slice(0, 3);
   const fallback = ["🍋", "🍇", "🍒", "7️⃣", "🔔", "⭐"];
   const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   const durations = reducedMotion ? [120, 180, 240] : [850, 1250, 1650];
