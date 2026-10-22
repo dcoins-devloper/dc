@@ -1,4 +1,22 @@
 /* D-COINS Mini App UI. API calls are intentionally isolated for binding to the bot backend. */
+function applyTheme(theme) {
+  const selected = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = selected;
+  try { localStorage.setItem("dcoins-theme", selected); } catch {}
+  const toggle = document.querySelector("#theme-toggle");
+  if (toggle) {
+    toggle.textContent = selected === "dark" ? "☀️" : "🌙";
+    toggle.setAttribute("aria-label", selected === "dark" ? "Включить светлую тему" : "Включить тёмную тему");
+    toggle.setAttribute("title", selected === "dark" ? "Светлая тема" : "Тёмная тема");
+    toggle.setAttribute("aria-pressed", String(selected === "dark"));
+  }
+}
+try {
+  document.documentElement.dataset.theme = localStorage.getItem("dcoins-theme") === "dark" ? "dark" : "light";
+} catch {
+  document.documentElement.dataset.theme = "light";
+}
+
 const state = {
   view: "home",
   balance: 0,
@@ -188,6 +206,10 @@ function animateNavigation() {
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-view], [data-action]");
   if (!target) return;
+  if (target.dataset.action === "theme-toggle") {
+    applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    return;
+  }
   if (target.dataset.view === "toggle-privacy") { setPrivacy(!state.hiddenBalance); return; }
   if (target.dataset.view === "case-open") { openCase(); return; }
   if (target.dataset.view === "pandora-open") { openPandora(); return; }
@@ -702,6 +724,7 @@ async function loadStats() {
   }
 }
 async function bootstrap() {
+  applyTheme(document.documentElement.dataset.theme || "light");
   const webApp = window.Telegram?.WebApp;
   state.initData = webApp?.initData || "";
   webApp?.ready();
