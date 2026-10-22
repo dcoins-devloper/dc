@@ -496,3 +496,18 @@ html[data-theme="dark"] .roulette-game { border-color:rgba(139,198,158,.22); bac
 @keyframes crash-explode { 0% { transform:translate(-50%,0) scale(.7); } 55% { transform:translate(-50%,-12px) scale(1.35); } 100% { transform:translate(-50%,0) scale(1); } }
 html[data-theme="dark"] .crash-flight { border-color:rgba(139,198,158,.22); background:linear-gradient(145deg,#173522,#0f2117); }
 @media(prefers-reduced-motion:reduce) { .crash-star,.crash-rocket,.crash-burst .crash-rocket { animation:none; } .crash-trail,.crash-rocket { transition:none; } }
+
+
+/* Scratch-card reveal animation using the server-generated 3x3 board. */
+.scratch-game { padding:18px; border:1px solid var(--line-strong); border-radius:24px; background:linear-gradient(145deg,var(--surface-2),var(--surface)); }
+.scratch-header { display:flex; justify-content:space-between; gap:10px; margin-bottom:16px; color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.12em; }
+.scratch-board { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
+.scratch-tile { display:grid; place-items:center; min-width:0; aspect-ratio:1; border:1px solid rgba(22,167,101,.3); border-radius:18px; background:linear-gradient(145deg,#1b9e61,#116e43); color:#effff4; font-size:clamp(30px,9vw,44px); box-shadow:inset 0 2px rgba(255,255,255,.22),0 8px 16px rgba(0,0,0,.12); }
+.scratch-tile.scratch-revealing { animation:scratch-wipe .14s ease-in-out infinite alternate; background:linear-gradient(145deg,#45d18a,#12864e); }
+.scratch-tile.scratch-revealed { animation:scratch-reveal .25s ease-out; border-color:rgba(54,216,137,.48); background:linear-gradient(145deg,var(--surface-3),var(--surface-2)); color:var(--text); }
+.scratch-caption { margin:16px 0 20px; color:var(--muted); font-size:13px; line-height:1.45; text-align:center; }
+html[data-theme="dark"] .scratch-game { border-color:rgba(139,198,158,.22); background:linear-gradient(145deg,#173522,#0f2117); }
+html[data-theme="dark"] .scratch-tile { border-color:rgba(139,198,158,.22); }
+@keyframes scratch-wipe { from { transform:scale(.96) rotate(-2deg); filter:brightness(.92); } to { transform:scale(1.03) rotate(2deg); filter:brightness(1.12); } }
+@keyframes scratch-reveal { 0% { transform:scale(.88) rotateY(45deg); } 70% { transform:scale(1.04); } 100% { transform:scale(1) rotateY(0); } }
+@media(prefers-reduced-motion:reduce) { .scratch-tile.scratch-revealing,.scratch-tile.scratch-revealed { animation:none; } }
