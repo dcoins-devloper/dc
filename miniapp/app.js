@@ -218,7 +218,8 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "support-revoke-user") { runAdminAction("revoke_support", undefined, undefined, Number(target.dataset.userId)); return; }
   if (target.dataset.view) {
     const nextView = target.dataset.view;
-    if (nextView === state.view) return;
+    // Разрешаем перезагрузку окна для игр и кейсов
+    if (nextView === state.view && !nextView.startsWith("play:") && !nextView.startsWith("case:")) return;
     clearTimeout(navigationTimer);
     const navigate = () => {
       state.view = nextView;
