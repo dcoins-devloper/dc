@@ -402,3 +402,21 @@ html[data-theme="dark"] button:focus-visible,
 html[data-theme="dark"] input:focus-visible,
 html[data-theme="dark"] select:focus-visible,
 html[data-theme="dark"] textarea:focus-visible { outline-color:#36d889; }
+
+
+/* Slot reel animation: preserves the existing D-COINS theme and layout. */
+.slot-machine { border:1px solid var(--line-strong); border-radius:24px; padding:18px; background:linear-gradient(145deg,var(--surface-2),var(--surface)); box-shadow:inset 0 1px rgba(255,255,255,.04),0 14px 32px rgba(0,0,0,.12); }
+.slot-machine-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; color:var(--muted); font-size:13px; }
+.slot-machine-head strong { color:var(--text); letter-spacing:.16em; font-size:12px; }
+.slot-reels { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:10px; border:1px solid var(--line-strong); border-radius:20px; background:var(--bg); overflow:hidden; }
+.slot-reel { display:grid; place-items:center; min-width:0; height:clamp(108px,34vw,150px); border:1px solid var(--line); border-radius:15px; background:linear-gradient(180deg,var(--surface-3),var(--surface-2)); box-shadow:inset 0 8px 14px rgba(0,0,0,.18),inset 0 -5px 10px rgba(0,0,0,.1); overflow:hidden; }
+.slot-reel span { display:block; font-size:clamp(42px,12vw,64px); line-height:1; filter:drop-shadow(0 5px 8px rgba(0,0,0,.18)); }
+.slot-caption { text-align:center; color:var(--muted); font-size:13px; line-height:1.55; margin:16px 2px 20px; }
+.slot-machine .section label { display:block; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; }
+.slot-machine.is-spinning .slot-reel span { filter:blur(1.4px); transform:scaleY(1.06); }
+.slot-reel.slot-stopped { border-color:rgba(54,216,137,.55); box-shadow:inset 0 0 0 1px rgba(54,216,137,.1),0 0 18px rgba(54,216,137,.08); animation:slot-stop .28s ease-out; }
+@keyframes slot-stop { 0% { transform:translateY(-8px); } 65% { transform:translateY(3px); } 100% { transform:translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .slot-reel.slot-stopped { animation:none; } }
+html[data-theme="dark"] .slot-machine { border-color:rgba(139,198,158,.22); background:linear-gradient(145deg,#173522,#0f2117); }
+html[data-theme="dark"] .slot-reels { background:#09150e; }
+html[data-theme="dark"] .slot-reel { border-color:rgba(139,198,158,.18); background:linear-gradient(180deg,#1b3927,#12291b); }
