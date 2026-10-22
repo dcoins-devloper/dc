@@ -511,3 +511,20 @@ html[data-theme="dark"] .scratch-tile { border-color:rgba(139,198,158,.22); }
 @keyframes scratch-wipe { from { transform:scale(.96) rotate(-2deg); filter:brightness(.92); } to { transform:scale(1.03) rotate(2deg); filter:brightness(1.12); } }
 @keyframes scratch-reveal { 0% { transform:scale(.88) rotateY(45deg); } 70% { transform:scale(1.04); } 100% { transform:scale(1) rotateY(0); } }
 @media(prefers-reduced-motion:reduce) { .scratch-tile.scratch-revealing,.scratch-tile.scratch-revealed { animation:none; } }
+
+
+/* Lottery 5x5 ticket selection and reveal */
+.lottery-game { display: grid; gap: 16px; }
+.lottery-header { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.12em; }
+.lottery-ticket-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; }
+.lottery-ticket { position:relative; display:flex; min-width:0; aspect-ratio: .82; flex-direction:column; align-items:center; justify-content:space-between; padding:9px 4px; overflow:hidden; border:1px solid var(--line-strong); border-radius:13px; color:var(--text); background:linear-gradient(155deg,var(--surface-2),var(--surface)); cursor:pointer; transition:transform .18s ease,border-color .18s ease,background .18s ease,box-shadow .18s ease; }
+.lottery-ticket::after { content:""; position:absolute; inset:4px; border:1px dashed color-mix(in srgb,var(--line-strong) 70%,transparent); border-radius:9px; pointer-events:none; }
+.lottery-ticket-number { align-self:flex-start; padding-left:4px; color:var(--muted); font-size:10px; font-weight:800; }
+.lottery-ticket-mark { display:grid; place-items:center; width:32px; height:32px; border-radius:50%; color:#f5c96b; background:color-mix(in srgb,#d89b28 15%,var(--surface)); font-weight:900; font-size:17px; }
+.lottery-ticket.selected { transform:translateY(-2px); border-color:#e5b64f; box-shadow:0 0 0 2px color-mix(in srgb,#e5b64f 22%,transparent),0 8px 22px color-mix(in srgb,#e5b64f 12%,transparent); background:linear-gradient(155deg,color-mix(in srgb,#e5b64f 16%,var(--surface-2)),var(--surface)); }
+.lottery-ticket.revealing { animation:lottery-flip .62s ease-in-out; }
+.lottery-ticket.revealed { border-color:#e5b64f; background:linear-gradient(155deg,color-mix(in srgb,#e5b64f 20%,var(--surface-2)),var(--surface)); }
+.lottery-ticket.revealed .lottery-ticket-mark { width:42px; height:42px; font-size:13px; }
+.lottery-caption { margin:0; color:var(--muted); font-size:13px; line-height:1.5; text-align:center; }
+@keyframes lottery-flip { 0%{transform:perspective(500px) rotateY(0) scale(1)} 45%{transform:perspective(500px) rotateY(90deg) scale(.94)} 100%{transform:perspective(500px) rotateY(0) scale(1)} }
+@media (prefers-reduced-motion:reduce) { .lottery-ticket,.lottery-ticket.revealing { transition:none; animation:none; } }
