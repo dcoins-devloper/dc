@@ -205,3 +205,200 @@ button:focus:not(:focus-visible) { outline: none; }
 .mine-cell.opened,.mine-cell.safe { background: #cef1e8; color: #149772; }
 .mine-cell.mine { background: #f7dce5; color: #de4d70; }
 @media (max-width: 360px) { .app-shell { padding-left: 14px; padding-right: 14px; } .topbar { margin-bottom: 30px; } .brand-copy small { font-size: 10px; } .profile-button { padding: 0 10px; } .quick-card,.game-card { padding: 15px; } .nav-item { font-size: 9px; } }
+
+
+/* D-COINS theme update: green accent + optional dark appearance. */
+:root {
+  color-scheme: light;
+  --bg: #eaf8f0;
+  --surface: rgba(255,255,255,.68);
+  --surface-2: rgba(255,255,255,.8);
+  --surface-3: #e1f5e9;
+  --line: rgba(255,255,255,.82);
+  --line-strong: rgba(255,255,255,.96);
+  --text: #173c2c;
+  --muted: #648575;
+  --amber: #16a765;
+  --amber-soft: #d9f7e6;
+  --cyan: #16a765;
+  --cyan-soft: #e0f8e9;
+  --green: #16a765;
+}
+html, body { background: #eaf8f0; }
+.app-shell {
+  background:
+    radial-gradient(circle at 98% 17%,rgba(160,235,190,.72),transparent 39%),
+    radial-gradient(circle at 5% 58%,rgba(194,240,210,.68),transparent 42%),
+    radial-gradient(circle at 86% 93%,rgba(183,244,214,.68),transparent 35%),
+    linear-gradient(155deg,#f4fff8,#dff6e8 48%,#e7faf0);
+}
+.eyebrow { color: #39835e; }
+.profile-button { color: #315f48; }
+.coin-symbol { border-color:#15985b; color:#15985b; }
+.home-head h1 span { color:#15985b; }
+.games-balance span { color:#648575; }
+.games-balance strong { color:#246c49; }
+.games-balance small { color:#648575; }
+.text-button { color:#128b50; }
+.balance-card::after { border-color:rgba(22,167,101,.16); box-shadow:0 0 0 25px rgba(22,167,101,.025),0 0 0 52px rgba(22,167,101,.02); }
+.balance-number { color:#246c49; }
+.balance-number small { color:#648575; }
+.button.primary,.button.cyan {
+  border-color:#16a765;
+  background:linear-gradient(180deg,#27c77c,#0b9653);
+  box-shadow:0 8px 18px rgba(11,150,83,.2),inset 0 1px rgba(255,255,255,.4);
+  color:#fff;
+}
+.button.secondary { color:#32654b; }
+.quick-card .icon,.game-icon,.case-icon,.row-icon {
+  border-color:rgba(168,224,190,.65);
+  background:linear-gradient(145deg,#d8f5e2,#f4fff7);
+  color:#16995b;
+}
+.quick-card strong,.game-card h3,.case-card h3 { color:#284f3a; }
+.case-card::before { border-color:rgba(22,167,101,.16); background:linear-gradient(140deg,rgba(22,167,101,.12),transparent); }
+.price,.notice b { color:#128b50; }
+.row-main strong { color:#244d37; }
+.row-side { color:#44775b; }
+.tag.amber,.tag.cyan { color:#128b50; background:#d9f7e6; }
+.stat b { color:#2b6545; }
+.bottom-nav::before { background:linear-gradient(145deg,#d1f4df,#e6f9ed); box-shadow:0 3px 11px rgba(22,167,101,.12); }
+.nav-item.active { color:#128b50; }
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline-color:#16a765; }
+.input:focus { border-color:#16a765; }
+.mine-cell { color:#16995b; }
+.mine-cell.opened,.mine-cell.safe { background:#cef1dc; color:#118b52; }
+@media (hover:hover) { .nav-item:hover { color:#128b50; } }
+
+/* Theme switch in the existing header; no other layout or feature changes. */
+.theme-toggle {
+  display:grid; place-items:center; flex:0 0 42px; width:42px; height:42px;
+  margin-left:auto; margin-right:8px; border:1px solid rgba(255,255,255,.96);
+  border-radius:50%; background:rgba(255,255,255,.7); color:#168c54;
+  box-shadow:0 6px 20px rgba(69,121,97,.08); cursor:pointer;
+  font-size:19px; line-height:1;
+}
+.theme-toggle:active { transform:scale(.94); }
+.topbar { gap:8px; }
+.brand { min-width:0; }
+.profile-button { flex-shrink:0; }
+@media(max-width:360px) {
+  .theme-toggle { flex-basis:38px; width:38px; height:38px; margin-right:2px; }
+  .topbar { gap:5px; }
+}
+
+/* Dark theme uses the same components and spacing, only recolors them. */
+html[data-theme="dark"] { color-scheme:dark; background:#0b1711; }
+html[data-theme="dark"] body { color:var(--text); background:var(--bg); }
+html[data-theme="dark"] {
+  --bg:#0b1711;
+  --surface:rgba(18,38,27,.94);
+  --surface-2:#183c2a;
+  --surface-3:#214b35;
+  --line:rgba(139,198,158,.18);
+  --line-strong:rgba(139,198,158,.27);
+  --text:#e9f7ed;
+  --muted:#9ab9a4;
+  --amber:#36d889;
+  --amber-soft:rgba(54,216,137,.14);
+  --cyan:#36d889;
+  --cyan-soft:rgba(54,216,137,.12);
+  --green:#36d889;
+}
+html[data-theme="dark"] .app-shell {
+  background:
+    radial-gradient(circle at 98% 17%,rgba(20,93,54,.28),transparent 39%),
+    radial-gradient(circle at 5% 58%,rgba(20,75,45,.24),transparent 42%),
+    radial-gradient(circle at 86% 93%,rgba(20,90,53,.22),transparent 35%),
+    linear-gradient(155deg,#0c1b12,#10281a 48%,#0b1c13);
+}
+html[data-theme="dark"] .brand-mark {
+  border-color:#27553a; background:linear-gradient(135deg,#1d4b31,#10281a); color:#6be3a0;
+}
+html[data-theme="dark"] .profile-button,
+html[data-theme="dark"] .theme-toggle,
+html[data-theme="dark"] .button,
+html[data-theme="dark"] .pill {
+  color:#d7f0df; border-color:rgba(139,198,158,.22); background:rgba(20,45,31,.88);
+}
+html[data-theme="dark"] .coin-symbol { color:#5ce29a; border-color:#36d889; }
+html[data-theme="dark"] .eyebrow { color:#72dba0; }
+html[data-theme="dark"] .home-head h1 span,
+html[data-theme="dark"] .text-button,
+html[data-theme="dark"] .price,
+html[data-theme="dark"] .notice b { color:#58df96; }
+html[data-theme="dark"] .games-balance span,
+html[data-theme="dark"] .games-balance small,
+html[data-theme="dark"] .balance-label,
+html[data-theme="dark"] .balance-number small { color:#9ab9a4; }
+html[data-theme="dark"] .games-balance strong,
+html[data-theme="dark"] .balance-number { color:#8aefb4; }
+html[data-theme="dark"] .balance-card,
+html[data-theme="dark"] .tile,
+html[data-theme="dark"] .list-row,
+html[data-theme="dark"] .case-card,
+html[data-theme="dark"] .game-card,
+html[data-theme="dark"] .option-card,
+html[data-theme="dark"] .modal,
+html[data-theme="dark"] .notice,
+html[data-theme="dark"] .stat-row {
+  color:var(--text); border-color:rgba(139,198,158,.2);
+  background:rgba(18,38,27,.88);
+  box-shadow:0 12px 30px rgba(0,0,0,.14),inset 0 1px rgba(255,255,255,.025);
+}
+html[data-theme="dark"] .balance-card { background:linear-gradient(130deg,rgba(29,68,45,.96),rgba(15,34,23,.96)); }
+html[data-theme="dark"] .balance-card::after { border-color:rgba(54,216,137,.15); box-shadow:0 0 0 25px rgba(54,216,137,.025),0 0 0 52px rgba(54,216,137,.02); }
+html[data-theme="dark"] .button.primary,
+html[data-theme="dark"] .button.cyan {
+  color:#062114; border-color:#36d889;
+  background:linear-gradient(180deg,#65e9a0,#25bf70);
+  box-shadow:0 8px 18px rgba(12,120,64,.18),inset 0 1px rgba(255,255,255,.24);
+}
+html[data-theme="dark"] .button.secondary { color:#d7f0df; background:#183c2a; }
+html[data-theme="dark"] .quick-card .icon,
+html[data-theme="dark"] .game-icon,
+html[data-theme="dark"] .case-icon,
+html[data-theme="dark"] .row-icon {
+  color:#6be3a0; border-color:rgba(139,198,158,.2);
+  background:linear-gradient(145deg,#1b4b31,#143321); box-shadow:none;
+}
+html[data-theme="dark"] .quick-card strong,
+html[data-theme="dark"] .game-card h3,
+html[data-theme="dark"] .case-card h3,
+html[data-theme="dark"] .row-main strong { color:#e2f6e8; }
+html[data-theme="dark"] .quick-card small,
+html[data-theme="dark"] .game-card p,
+html[data-theme="dark"] .case-card p,
+html[data-theme="dark"] .row-main span,
+html[data-theme="dark"] .row-side,
+html[data-theme="dark"] .lead,
+html[data-theme="dark"] .notice { color:#a4c4ae; }
+html[data-theme="dark"] .case-card::before { border-color:rgba(54,216,137,.15); background:linear-gradient(140deg,rgba(54,216,137,.12),transparent); }
+html[data-theme="dark"] .tag.amber,
+html[data-theme="dark"] .tag.cyan { color:#73e7a4; background:rgba(54,216,137,.13); }
+html[data-theme="dark"] .tag.green { color:#73e7a4; background:rgba(54,216,137,.13); }
+html[data-theme="dark"] .stat b { color:#d6f4df; }
+html[data-theme="dark"] .stat small { color:#9ab9a4; }
+html[data-theme="dark"] .stat { border-color:rgba(139,198,158,.18); }
+html[data-theme="dark"] .input {
+  color:#e5f5e9; border-color:rgba(139,198,158,.24);
+  background:rgba(8,24,14,.8); box-shadow:inset 0 1px 3px rgba(0,0,0,.12);
+}
+html[data-theme="dark"] .input::placeholder { color:#8eae99; }
+html[data-theme="dark"] .input:focus { border-color:#36d889; }
+html[data-theme="dark"] .bottom-nav {
+  border-color:rgba(139,198,158,.18); background:rgba(11,28,17,.9);
+  box-shadow:0 12px 28px rgba(0,0,0,.25),inset 0 1px rgba(255,255,255,.03);
+}
+html[data-theme="dark"] .bottom-nav::before { background:linear-gradient(145deg,#1c5132,#164027); box-shadow:0 3px 11px rgba(0,0,0,.12); }
+html[data-theme="dark"] .nav-item { color:#91ad9a; }
+html[data-theme="dark"] .nav-item.active,
+html[data-theme="dark"] .nav-item:hover { color:#69e3a0; }
+html[data-theme="dark"] .mine-cell { border-color:rgba(139,198,158,.22); background:#153522; color:#6be3a0; }
+html[data-theme="dark"] .mine-cell.opened,
+html[data-theme="dark"] .mine-cell.safe { background:#1d5737; color:#8aefb4; }
+html[data-theme="dark"] .mine-cell.mine { background:#51262b; color:#ff8d98; }
+html[data-theme="dark"] button:focus-visible,
+html[data-theme="dark"] input:focus-visible,
+html[data-theme="dark"] select:focus-visible,
+html[data-theme="dark"] textarea:focus-visible { outline-color:#36d889; }
