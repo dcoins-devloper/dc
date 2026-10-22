@@ -187,6 +187,17 @@ function renderGame(game) {
     document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
     return;
   }
+  if (game === "roulette") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Выбери цвет и запусти колесо рулетки.", `<div class="roulette-game">
+      <div class="roulette-stage"><div class="roulette-pointer" aria-hidden="true"></div><div class="roulette-wheel" data-roulette-wheel aria-label="Колесо рулетки"><div class="roulette-wheel-center">D</div></div></div>
+      <p class="roulette-caption">Колесо остановится на цвете, выпавшем на сервере.</p>
+      <div class="roulette-options" role="group" aria-label="Цвет ставки"><button type="button" class="roulette-choice selected" data-roulette-choice="red">🔴 Красное</button><button type="button" class="roulette-choice" data-roulette-choice="black">⚫ Чёрное</button><button type="button" class="roulette-choice" data-roulette-choice="green">🟢 Зелёное · ×3</button></div>
+      <input id="game-option" type="hidden" value="red" />
+      <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
+      <div class="modal-actions"><button class="button primary wide" data-action="roulette-spin">Запустить рулетку</button>${btn("К играм", "games")}</div>
+    </div>`);
+    return;
+  }
   if (game === "dice") {
     document.querySelector("#screen").innerHTML = page(names[game], "Угадай число от 1 до 6 и брось кубик.", `<div class="dice-game">
       <div class="dice-stage"><div class="dice-cube" data-dice-face aria-live="polite">⚄</div></div>
@@ -269,6 +280,8 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "slot-spin") { playGame("slots"); return; }
   if (target.dataset.action === "coin-flip") { playGame("coinflip"); return; }
   if (target.dataset.action === "dice-roll") { playGame("dice"); return; }
+  if (target.dataset.action === "roulette-spin") { playGame("roulette"); return; }
+  if (target.dataset.rouletteChoice) { const option = document.querySelector("#game-option"); if (option) option.value = target.dataset.rouletteChoice; document.querySelectorAll("[data-roulette-choice]").forEach(el => el.classList.toggle("selected", el === target)); return;
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
@@ -665,6 +678,24 @@ async function animateSlotReels(result) {
   })));
   document.querySelector(".slot-machine")?.classList.remove("is-spinning");
 }
+async function animateRoulette(result) {
+  const wheel = document.querySelector("[data-roulette-wheel]");
+  const button = document.querySelector('[data-action="roulette-spin"]');
+  if (!wheel) return;
+  const text = String(result || "").toLowerCase();
+  const color = text.includes("зелёное") || text.includes("зеленое") ? "green" : text.includes("чёрное") || text.includes("черное") ? "black" : "red";
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const sectors = {red: 0, black: 1, green: 2};
+  if (button) { button.disabled = true; button.textContent = "Колесо вращается…"; }
+  wheel.classList.remove("roulette-spinning", "roulette-landed");
+  const current = Number(wheel.dataset.rotation || 0);
+  const target = current + 360 * 6 + (360 - (sectors[color] * 30 + 15));
+  if (reducedMotion) { wheel.style.transform = `rotate(${target}deg)`; wheel.dataset.rotation = String(target); wheel.classList.add("roulette-landed"); return; }
+  wheel.classList.add("roulette-spinning");
+  wheel.style.transform = `rotate(${target}deg)`;
+  await new Promise(resolve => { wheel.addEventListener("transitionend", resolve, {once:true}); window.setTimeout(resolve, 4200); });
+  wheel.classList.remove("roulette-spinning"); wheel.classList.add("roulette-landed"); wheel.dataset.rotation = String(target);
+}
 async function animateDiceRoll(result) {
   const die = document.querySelector("[data-dice-face]");
   const button = document.querySelector('[data-action="dice-roll"]');
@@ -721,6 +752,7 @@ async function playGame(game) {
     if (game === "slots") await animateSlotReels(data.result);
     if (game === "coinflip") await animateCoinFlip(data.result);
     if (game === "dice") await animateDiceRoll(data.result);
+    if (game === "roulette") await animateRoulette(data.result);
     await syncProfile().catch(() => {});
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
