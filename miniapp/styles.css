@@ -420,3 +420,22 @@ html[data-theme="dark"] textarea:focus-visible { outline-color:#36d889; }
 html[data-theme="dark"] .slot-machine { border-color:rgba(139,198,158,.22); background:linear-gradient(145deg,#173522,#0f2117); }
 html[data-theme="dark"] .slot-reels { background:#09150e; }
 html[data-theme="dark"] .slot-reel { border-color:rgba(139,198,158,.18); background:linear-gradient(180deg,#1b3927,#12291b); }
+
+
+/* Coin toss animation, using the existing D-COINS palette. */
+.coin-game { padding:18px; border:1px solid var(--line-strong); border-radius:24px; background:linear-gradient(145deg,var(--surface-2),var(--surface)); }
+.coin-stage { display:grid; place-items:center; min-height:250px; perspective:900px; border-radius:20px; background:radial-gradient(ellipse at center,rgba(54,216,137,.09),transparent 65%); overflow:hidden; }
+.coin-3d { position:relative; width:144px; height:144px; transform-style:preserve-3d; border-radius:50%; }
+.coin-face { position:absolute; inset:0; display:grid; place-items:center; border-radius:50%; border:7px solid #e8e8dd; background:linear-gradient(145deg,#252b27,#121713); color:#e8e8dd; font-size:76px; font-weight:500; line-height:1; box-shadow:inset 0 0 0 3px rgba(255,255,255,.12),0 12px 25px rgba(0,0,0,.28); backface-visibility:hidden; }
+.coin-heads { transform:rotateY(0deg); }
+.coin-tails { transform:rotateY(180deg); }
+.coin-caption { margin:6px 0 22px; text-align:center; color:var(--muted); font-size:13px; }
+.coin-3d.coin-flipping { animation:coin-toss 1.45s cubic-bezier(.2,.72,.25,1) both; }
+.coin-3d.coin-heads-result { transform:rotateY(0deg); }
+.coin-3d.coin-tails-result { transform:rotateY(180deg); }
+.coin-3d.coin-landed { animation:coin-land .24s ease-out; }
+@keyframes coin-toss { 0% { transform:translateY(0) rotateY(0) rotateZ(0) scale(1); } 18% { transform:translateY(-55px) rotateY(540deg) rotateZ(12deg) scale(1.04); } 45% { transform:translateY(-80px) rotateY(1260deg) rotateZ(-10deg) scale(1.08); } 72% { transform:translateY(-35px) rotateY(1980deg) rotateZ(5deg) scale(1.02); } 100% { transform:translateY(0) rotateY(2520deg) rotateZ(0) scale(1); } }
+@keyframes coin-land { 0% { transform:scale(1.08); } 70% { transform:scale(.96); } 100% { transform:scale(1); } }
+html[data-theme="dark"] .coin-game { border-color:rgba(139,198,158,.22); background:linear-gradient(145deg,#173522,#0f2117); }
+html[data-theme="dark"] .coin-face { border-color:#d8e8dc; background:linear-gradient(145deg,#244a32,#0d1e13); color:#dff5e5; }
+@media (prefers-reduced-motion: reduce) { .coin-3d.coin-flipping,.coin-3d.coin-landed { animation:none; } }
