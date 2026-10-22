@@ -689,7 +689,7 @@ async function animateRoulette(result) {
   if (button) { button.disabled = true; button.textContent = "Колесо вращается…"; }
   wheel.classList.remove("roulette-spinning", "roulette-landed");
   const current = Number(wheel.dataset.rotation || 0);
-  const target = current + 360 * 6 + (360 - (sectors[color] * 30 + 15));
+  const target = current + 360 * 6 + ((270 - (sectors[color] * 30 + 15) + 360) % 360);
   if (reducedMotion) { wheel.style.transform = `rotate(${target}deg)`; wheel.dataset.rotation = String(target); wheel.classList.add("roulette-landed"); return; }
   wheel.classList.add("roulette-spinning");
   wheel.style.transform = `rotate(${target}deg)`;
