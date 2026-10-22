@@ -281,7 +281,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "coin-flip") { playGame("coinflip"); return; }
   if (target.dataset.action === "dice-roll") { playGame("dice"); return; }
   if (target.dataset.action === "roulette-spin") { playGame("roulette"); return; }
-  if (target.dataset.rouletteChoice) { const option = document.querySelector("#game-option"); if (option) option.value = target.dataset.rouletteChoice; document.querySelectorAll("[data-roulette-choice]").forEach(el => el.classList.toggle("selected", el === target)); return;
+  if (target.dataset.rouletteChoice) { const option = document.querySelector("#game-option"); if (option) option.value = target.dataset.rouletteChoice; document.querySelectorAll("[data-roulette-choice]").forEach(el => el.classList.toggle("selected", el === target)); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
