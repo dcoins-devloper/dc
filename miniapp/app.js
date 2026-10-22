@@ -187,6 +187,17 @@ function renderGame(game) {
     document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
     return;
   }
+  if (game === "lottery") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Выбери один из 25 билетов. Результат и множитель определяются сервером.", `<div class="lottery-game">
+      <div class="lottery-header"><span>D-COINS / LUCKY 25</span><span>25 билетов</span></div>
+      <div class="lottery-ticket-grid" role="group" aria-label="Выбор билета">${Array.from({length:25},(_,i)=>`<button type="button" class="lottery-ticket ${i===0?"selected":""}" data-lottery-ticket="${i}" aria-pressed="${i===0}" aria-label="Билет ${i+1}"><span class="lottery-ticket-number">${String(i+1).padStart(2,"0")}</span><span class="lottery-ticket-mark">D</span></button>`).join("")}</div>
+      <p class="lottery-caption">Выбери билет, затем открой его. На экране появится только результат выбранного билета.</p>
+      <input id="game-option" type="hidden" value="0" />
+      <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
+      <div class="modal-actions"><button class="button primary wide" data-action="lottery-open">Открыть билет №1</button>${btn("К играм", "games")}</div>
+    </div>`);
+    return;
+  }
   if (game === "scratch") {
     document.querySelector("#screen").innerHTML = page(names[game], "Сотри три поля и проверь, совпали ли символы.", `<div class="scratch-game">
       <div class="scratch-header"><span>D-COINS / SCRATCH</span><span>3 поля</span></div>
@@ -259,7 +270,7 @@ function animateNavigation() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-view], [data-action], [data-roulette-choice]");
+  const target = event.target.closest("[data-view], [data-action], [data-roulette-choice], [data-lottery-ticket]");
   if (!target) return;
   if (target.dataset.action === "theme-toggle") {
     applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
@@ -293,6 +304,19 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "roulette-spin") { playGame("roulette"); return; }
   if (target.dataset.action === "scratch-reveal") { playGame("scratch"); return; }
   if (target.dataset.rouletteChoice) { const option = document.querySelector("#game-option"); if (option) option.value = target.dataset.rouletteChoice; document.querySelectorAll("[data-roulette-choice]").forEach(el => el.classList.toggle("selected", el === target)); return; }
+  if (target.dataset.lotteryTicket !== undefined) {
+    const option = document.querySelector("#game-option");
+    if (option) option.value = target.dataset.lotteryTicket;
+    document.querySelectorAll("[data-lottery-ticket]").forEach(el => {
+      const selected = el === target;
+      el.classList.toggle("selected", selected);
+      el.setAttribute("aria-pressed", String(selected));
+    });
+    const openButton = document.querySelector('[data-action="lottery-open"]');
+    if (openButton) openButton.textContent = `Открыть билет №${Number(target.dataset.lotteryTicket) + 1}`;
+    return;
+  }
+  if (target.dataset.action === "lottery-open") { playGame("lottery"); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
   if (target.dataset.action === "buy") { purchaseStars(Number(target.dataset.amount)); return; }
@@ -768,6 +792,19 @@ async function animateCoinFlip(result) {
   coin.classList.remove("coin-flipping");
   coin.classList.add(heads ? "coin-heads-result" : "coin-tails-result", "coin-landed");
 }
+async function animateLottery(result) {
+  const selected = document.querySelector(".lottery-ticket.selected");
+  if (!selected) return;
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  selected.classList.add("revealing");
+  if (!reducedMotion) {
+    await new Promise(resolve => setTimeout(resolve, 620));
+  }
+  const match = String(result || "").match(/×\s*([\d.]+)/);
+  selected.querySelector(".lottery-ticket-mark").textContent = match ? `×${match[1]}` : "✓";
+  selected.classList.remove("revealing");
+  selected.classList.add("revealed");
+}
 async function playGame(game) {
   const bet = Number(document.querySelector("#game-bet")?.value);
   const option = document.querySelector("#game-option")?.value || (game === "slots" ? "spin" : undefined);
@@ -781,6 +818,7 @@ async function playGame(game) {
     if (game === "dice") await animateDiceRoll(data.result);
     if (game === "roulette") await animateRoulette(data.result);
     if (game === "scratch") await animateScratch(data.result);
+    if (game === "lottery") await animateLottery(data.result);
     await syncProfile().catch(() => {});
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
