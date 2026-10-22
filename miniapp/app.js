@@ -27,6 +27,24 @@ const state = {
 };
 
 const icon = (value) => `<span class="row-icon">${value}</span>`;
+const HOME_SLOGANS = [
+  ["Есть стиль.", "Будет победа."],
+  ["Разогрей азарт.", "Собери куш."],
+  ["Делай ставку.", "Лови удачу."],
+  ["Смелым везёт.", "Сегодня твой день."],
+  ["Один шаг до джекпота.", "Не упусти шанс."],
+  ["Крути барабаны.", "Забирай выигрыш."],
+  ["Удача любит смелых.", "Проверь себя."],
+  ["Твоя игра начинается.", "Действуй дерзко."],
+  ["Фортуна ждёт.", "Не заставляй её скучать."],
+  ["Каждый раунд — шанс.", "Используй свой."],
+  ["Ставь с умом.", "Выигрывай с размахом."],
+  ["Риск — это стиль.", "Победа — результат."],
+  ["Сегодня в ударе ты.", "Покажи класс."],
+  ["Монеты любят смелых.", "Забирай свою удачу."],
+  ["Готов к победе?", "Тогда вперёд."],
+];
+const HOME_SLOGAN = HOME_SLOGANS[Math.floor(Math.random() * HOME_SLOGANS.length)];
 const CASES = { blood: { title: "BLOOD" }, pantera: { title: "PANTERA" }, spider_man: { title: "SPIDER MAN" } };
 const BOOSTERS = { double: ["×2"], insurance: ["Страховка"], free: ["Бесплатная игра"], bonus25: ["+25%"], repeat: ["Повтор"], roulette: ["Повтор рулетки"] };
 const btn = (label, view, style = "secondary") => `<button class="button ${style}" type="button" data-view="${view}">${label}</button>`;
@@ -34,7 +52,7 @@ const card = (iconText, title, text, view) => `<button class="game-card" type="b
 
 const views = {
   home: () => `
-    <div class="page-head home-head"><div class="eyebrow">ТВОЯ ИГРА. ТВОИ ПРАВИЛА.</div><h1>Есть стиль.<br><span>Будет победа.</span></h1><p class="lead">Привет, ${state.displayName}! Выбирай, во что сыграть сегодня.</p></div>
+    <div class="page-head home-head"><div class="eyebrow">ТВОЯ ИГРА. ТВОИ ПРАВИЛА.</div><h1>${HOME_SLOGAN[0]}<br><span>${HOME_SLOGAN[1]}</span></h1><p class="lead">Привет, ${state.displayName}! Выбирай, во что сыграть сегодня.</p></div>
     <section class="balance-card"><div class="balance-label">Текущий баланс</div><div class="balance-number">${state.hiddenBalance ? "••••••" : `${format(state.balance)} <small>DC</small>`}</div><div class="balance-actions">${btn("Купить DC", "buy", "primary")}${btn("Баланс", "profile")}</div></section>
     <section class="section"><div class="section-title"><h2>Быстрый доступ</h2></div><div class="grid two">
       <button class="tile quick-card" type="button" data-view="games"><span class="icon">◈</span><strong>Игры</strong><small>8 игр</small></button>
