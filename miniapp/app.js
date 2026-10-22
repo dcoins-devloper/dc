@@ -187,6 +187,16 @@ function renderGame(game) {
     document.querySelector("#screen").innerHTML = page(names[game], "Открывай безопасные клетки и забирай выигрыш в любой момент.", `<div class="modal"><h2>Минное поле 5×5</h2><p>На поле ${8} мин. Минимальная ставка — ${format(5)} DC.</p><div class="section"><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки" /></div><div class="modal-actions"><button class="button primary" data-action="mines-start">Начать игру</button>${btn("К играм", "games")}</div></div>`);
     return;
   }
+  if (game === "scratch") {
+    document.querySelector("#screen").innerHTML = page(names[game], "Сотри три поля и проверь, совпали ли символы.", `<div class="scratch-game">
+      <div class="scratch-header"><span>D-COINS / SCRATCH</span><span>3 поля</span></div>
+      <div class="scratch-board" data-scratch-board><div class="scratch-tile" data-scratch-tile>?</div><div class="scratch-tile" data-scratch-tile>?</div><div class="scratch-tile" data-scratch-tile>?</div></div>
+      <p class="scratch-caption">Нажми «Открыть карту», чтобы увидеть результат.</p>
+      <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
+      <div class="modal-actions"><button class="button primary wide" data-action="scratch-reveal">Открыть скретч-карту</button>${btn("К играм", "games")}</div>
+    </div>`);
+    return;
+  }
   if (game === "roulette") {
     document.querySelector("#screen").innerHTML = page(names[game], "Выбери цвет и запусти колесо рулетки.", `<div class="roulette-game">
       <div class="roulette-stage"><div class="roulette-pointer" aria-hidden="true"></div><div class="roulette-wheel" data-roulette-wheel aria-label="Колесо рулетки"><div class="roulette-wheel-center">D</div></div></div>
@@ -281,6 +291,7 @@ document.addEventListener("click", (event) => {
   if (target.dataset.action === "coin-flip") { playGame("coinflip"); return; }
   if (target.dataset.action === "dice-roll") { playGame("dice"); return; }
   if (target.dataset.action === "roulette-spin") { playGame("roulette"); return; }
+  if (target.dataset.action === "scratch-reveal") { playGame("scratch"); return; }
   if (target.dataset.rouletteChoice) { const option = document.querySelector("#game-option"); if (option) option.value = target.dataset.rouletteChoice; document.querySelectorAll("[data-roulette-choice]").forEach(el => el.classList.toggle("selected", el === target)); return; }
   if (target.dataset.action === "play-game") { playGame(target.dataset.game); return; }
   if (target.dataset.action === "booster") { selectBooster(target.dataset.boosterId, target.dataset.booster); return; }
@@ -680,6 +691,20 @@ async function animateSlotReels(result) {
   })));
   document.querySelector(".slot-machine")?.classList.remove("is-spinning");
 }
+async function animateScratch(result) {
+  const tiles = [...document.querySelectorAll("[data-scratch-tile]")];
+  const button = document.querySelector('[data-action="scratch-reveal"]');
+  if (!tiles.length) return;
+  const symbols = String(result || "").trim().split(/\s+/);
+  const fallback = ["🍀", "💎", "⭐", "🍒", "🔔", "🪙"];
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (button) { button.disabled = true; button.textContent = "Открываем карту…"; }
+  for (let i=0;i<tiles.length;i++) {
+    if (!reducedMotion) { tiles[i].classList.add("scratch-revealing"); for (let n=0;n<5;n++) { tiles[i].textContent = fallback[Math.floor(Math.random()*fallback.length)]; await new Promise(resolve => window.setTimeout(resolve, 65)); } }
+    tiles[i].textContent = symbols[i] || symbols[0] || "✦";
+    tiles[i].classList.remove("scratch-revealing"); tiles[i].classList.add("scratch-revealed");
+  }
+}
 async function animateRoulette(result) {
   const wheel = document.querySelector("[data-roulette-wheel]");
   const button = document.querySelector('[data-action="roulette-spin"]');
@@ -755,6 +780,7 @@ async function playGame(game) {
     if (game === "coinflip") await animateCoinFlip(data.result);
     if (game === "dice") await animateDiceRoll(data.result);
     if (game === "roulette") await animateRoulette(data.result);
+    if (game === "scratch") await animateScratch(data.result);
     await syncProfile().catch(() => {});
     state.balance = data.balance;
     document.querySelector("#screen").innerHTML = page(data.won ? "Выигрыш" : "Раунд завершён", "Результат игры", `<div class="modal"><h2>${data.result}</h2><p>${data.won ? `✅ Выигрыш: ${format(data.prize)} DC` : `❌ Ставка проиграна${data.refund ? `. Возврат по страховке: ${format(data.refund)} DC` : ""}`}</p><p class="lead">Баланс: ${format(data.balance)} DC</p><div class="modal-actions">${btn("Играть ещё", `play:${game}`, "primary")}${btn("Все игры", "games")}</div></div>`);
