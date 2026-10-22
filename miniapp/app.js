@@ -185,9 +185,23 @@ function animateNavigation() {
   );
 }
 
+function setTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  try { localStorage.setItem("dc-theme", theme); } catch (e) { /* storage unavailable */ }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const bg = theme === "light" ? "#f4f2fa" : "#0b0a13";
+  if (meta) meta.setAttribute("content", bg);
+  try { window.Telegram?.WebApp?.setHeaderColor?.(bg); } catch (e) { /* not available */ }
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  setTheme(current === "light" ? "dark" : "light");
+}
+
 document.addEventListener("click", (event) => {
   const target = event.target.closest("[data-view], [data-action]");
   if (!target) return;
+  if (target.dataset.action === "toggle-theme") { toggleTheme(); return; }
   if (target.dataset.view === "toggle-privacy") { setPrivacy(!state.hiddenBalance); return; }
   if (target.dataset.view === "case-open") { openCase(); return; }
   if (target.dataset.view === "pandora-open") { openPandora(); return; }
@@ -703,6 +717,8 @@ async function loadStats() {
 }
 async function bootstrap() {
   const webApp = window.Telegram?.WebApp;
+  const currentTheme = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  setTheme(currentTheme);
   state.initData = webApp?.initData || "";
   webApp?.ready();
   webApp?.expand();

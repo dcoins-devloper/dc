@@ -2,9 +2,23 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("dc-theme");
+          var theme = saved === "light" || saved === "dark" ? saved : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#eaf5ff" />
+    <meta name="theme-color" content="#0b0a13" />
     <title>D-COINS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -14,9 +28,15 @@
           <span class="brand-mark"><span>D</span></span>
           <span class="brand-copy"><strong id="header-name">Игрок</strong><small>Твоя игра. Твой стиль.</small></span>
         </button>
-        <button class="profile-button" type="button" data-view="profile" aria-label="Открыть баланс">
-          <span class="coin-symbol">D</span><span id="header-balance">0</span>
-        </button>
+        <div class="topbar-actions">
+          <button class="theme-toggle" type="button" data-action="toggle-theme" aria-label="Переключить тему">
+            <span class="theme-toggle-icon theme-toggle-icon-dark">☾</span>
+            <span class="theme-toggle-icon theme-toggle-icon-light">☀</span>
+          </button>
+          <button class="profile-button" type="button" data-view="profile" aria-label="Открыть баланс">
+            <span class="coin-symbol">D</span><span id="header-balance">0</span>
+          </button>
+        </div>
       </header>
 
       <section id="screen" class="screen" aria-live="polite"></section>
