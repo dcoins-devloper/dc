@@ -189,7 +189,7 @@ function renderGame(game) {
   }
   if (game === "coinflip") {
     document.querySelector("#screen").innerHTML = page(names[game], "Выбери сторону и подбрось фишку.", `<div class="coin-game">
-      <div class="coin-stage"><div class="coin-3d" data-coin><div class="coin-face coin-heads">Z</div><div class="coin-face coin-tails">D</div></div></div>
+      <div class="coin-stage"><div class="coin-3d" data-coin><div class="coin-face coin-heads">D</div><div class="coin-face coin-tails">D</div></div></div>
       <p class="coin-caption">Точное попадание · выплата ×1.9</p>
       <div class="section"><label for="game-option">Сторона фишки</label><select id="game-option" class="input"><option value="heads">Орёл</option><option value="tails">Решка</option></select></div>
       <div class="section"><label for="game-bet">Твоя ставка</label><input id="game-bet" class="input" type="number" min="5" step="1" inputmode="numeric" placeholder="Сумма ставки в DC" /></div>
