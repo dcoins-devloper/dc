@@ -3515,10 +3515,30 @@ class TelegramTransport(BaseRequestMiddleware):
 
 
 active_games: dict = {}
+user_game_locks: dict[int, asyncio.Lock] = {}
 pending_game_bets: dict[int, dict] = {}
 active_duels: dict[str, dict] = {}
 duel_by_user: dict[int, str] = {}
 db = Database(os.getenv("DB_PATH", "activity.db"))
+
+
+@asynccontextmanager
+async def user_game_lock(user_id: int):
+    lock = user_game_locks.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        yield
+
+
+def serialize_user_game(function):
+    @wraps(function)
+    async def wrapped(event, *args, **kwargs):
+        user = getattr(event, "from_user", None)
+        if user is None:
+            return await function(event, *args, **kwargs)
+        async with user_game_lock(user.id):
+            return await function(event, *args, **kwargs)
+
+    return wrapped
 
 
 def case_reward_parts(reward: tuple) -> tuple[str, int, float]:
@@ -3651,35 +3671,37 @@ async def send_gift_safe(bot: Bot, user_id: int, user_name: str, gift_id: str, r
 
 
 async def casino_timeout_checker(bot: Bot) -> None:
-    for uid, game in list(active_games.items()):
-        if game["expires"] > time.time():
-            continue
-        active_games.pop(uid)
-        if game["game"] == "mines" and game.get("opened"):
-            refund = mines_prize(game["bet"], len(game["opened"]))
-        else:
-            refund = game["bet"]
-        await db.add_coins(uid, refund)
-        if game["game"] == "mines" and game.get("opened"):
-            from aiogram.types import User
+    for uid in list(active_games):
+        async with user_game_lock(uid):
+            game = active_games.get(uid)
+            if not game or game["expires"] > time.time():
+                continue
+            active_games.pop(uid, None)
+            if game["game"] == "mines" and game.get("opened"):
+                refund = mines_prize(game["bet"], len(game["opened"]))
+            else:
+                refund = game["bet"]
+            await db.add_coins(uid, refund)
+            if game["game"] == "mines" and game.get("opened"):
+                from aiogram.types import User
 
-            user = User(id=uid, is_bot=False, first_name=await db.get_user_name(uid))
-            await school_game(user, f"mines:{game['token']}", game["bet"], True)
-        await send_log(bot, f"Тайм-аут игры {uid}: начислено {refund} DC")
-        if game.get("source") == "miniapp":
-            await log_miniapp_game(
-                {"id": uid, "name": await db.get_user_name(uid)},
-                "Мины" if game["game"] == "mines" else "Crash",
-                game["bet"], "⏰ Тайм-аут", await db.get_display_balance(uid),
-                refund=refund, booster=game.get("booster"),
-            )
-        try:
-            await bot.send_message(
-                game["chat_id"],
-                f"⏰ Игра завершена по времени. Начислено {refund:,} DC.",
-            )
-        except Exception:
-            logger.exception("Cannot notify about game timeout")
+                user = User(id=uid, is_bot=False, first_name=await db.get_user_name(uid))
+                await school_game(user, f"mines:{game['token']}", game["bet"], True)
+            await send_log(bot, f"Тайм-аут игры {uid}: начислено {refund} DC")
+            if game.get("source") == "miniapp":
+                await log_miniapp_game(
+                    {"id": uid, "name": await db.get_user_name(uid)},
+                    "Мины" if game["game"] == "mines" else "Crash",
+                    game["bet"], "⏰ Тайм-аут", await db.get_display_balance(uid),
+                    refund=refund, booster=game.get("booster"),
+                )
+            try:
+                await bot.send_message(
+                    game["chat_id"],
+                    f"⏰ Игра завершена по времени. Начислено {refund:,} DC.",
+                )
+            except Exception:
+                logger.exception("Cannot notify about game timeout")
     for uid, state in list(pending_game_bets.items()):
         if state["expires"] <= time.time():
             pending_game_bets.pop(uid, None)
@@ -7280,6 +7302,7 @@ async def inline_game_bet(callback: CallbackQuery, bot: Bot) -> None:
 
 
 @router.message(Command("crash"))
+@serialize_user_game
 async def cmd_crash(message: Message, bot: Bot) -> None:
     if message.chat.type != "private":
         return
@@ -7341,6 +7364,7 @@ async def cmd_crash(message: Message, bot: Bot) -> None:
 
 
 @router.callback_query(F.data.startswith("crash:"))
+@serialize_user_game
 async def crash_callback(callback: CallbackQuery, bot: Bot) -> None:
     parts = callback.data.split(":")
     if len(parts) != 3:
@@ -7417,6 +7441,7 @@ async def crash_callback(callback: CallbackQuery, bot: Bot) -> None:
 
 
 @router.message(Command("slots"))
+@serialize_user_game
 async def cmd_slots(message: Message, bot: Bot) -> None:
     if message.chat.type != "private":
         return
@@ -7480,6 +7505,7 @@ async def cmd_slots(message: Message, bot: Bot) -> None:
 
 
 @router.message(Command("roulette"))
+@serialize_user_game
 async def cmd_roulette(message: Message, bot: Bot) -> None:
     if message.chat.type != "private":
         return
@@ -7550,6 +7576,7 @@ async def cmd_roulette(message: Message, bot: Bot) -> None:
 
 
 @router.message(Command("dice"))
+@serialize_user_game
 async def cmd_dice(message: Message, bot: Bot) -> None:
     if message.chat.type != "private":
         return
@@ -7615,6 +7642,7 @@ async def cmd_dice(message: Message, bot: Bot) -> None:
 
 
 @router.message(Command("coinflip"))
+@serialize_user_game
 async def cmd_coinflip(message: Message, bot: Bot) -> None:
     if message.chat.type != "private":
         return
@@ -7688,6 +7716,7 @@ async def cmd_coinflip(message: Message, bot: Bot) -> None:
     )
 
 
+@serialize_user_game
 async def start_mines_game(message: Message) -> None:
     user_id = message.from_user.id
     if await db.is_banned(user_id):
@@ -7745,6 +7774,7 @@ async def cmd_mines_text(message: Message) -> None:
 
 
 @router.callback_query(F.data.startswith("mines_cell_"))
+@serialize_user_game
 async def mines_open_cell(callback: CallbackQuery, bot: Bot) -> None:
     user_id = callback.from_user.id
     game = active_games.get(user_id)
@@ -7816,6 +7846,7 @@ async def mines_open_cell(callback: CallbackQuery, bot: Bot) -> None:
 
 
 @router.callback_query(F.data == "mines_cashout")
+@serialize_user_game
 async def mines_cashout(callback: CallbackQuery, bot: Bot) -> None:
     user_id = callback.from_user.id
     game = active_games.get(user_id)
@@ -7875,6 +7906,7 @@ async def settle_scratch(user, game: dict) -> tuple[str, str, int]:
     return (result, log_result, balance)
 
 
+@serialize_user_game
 async def start_scratch_game(message: Message, bot: Bot) -> None:
     user_id = message.from_user.id
     if await db.is_banned(user_id):
@@ -7990,6 +8022,7 @@ async def scratch_done(callback: CallbackQuery) -> None:
     await callback.answer("Игра уже завершена.")
 
 
+@serialize_user_game
 async def start_lottery_game(message: Message) -> None:
     user_id = message.from_user.id
     if await db.is_banned(user_id):
@@ -9329,6 +9362,16 @@ async def miniapp_authorize(request: web.Request) -> dict:
     return user
 
 
+def serialize_miniapp_user_game(function):
+    @wraps(function)
+    async def wrapped(request):
+        user = await miniapp_authorize(request)
+        async with user_game_lock(user["id"]):
+            return await function(request, user)
+
+    return wrapped
+
+
 async def miniapp_index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(MINIAPP_DIR / "index.html")
 
@@ -9432,8 +9475,8 @@ def miniapp_crash_payload(game: dict, finished: bool = False) -> dict:
     }
 
 
-async def miniapp_crash_start(request: web.Request) -> web.Response:
-    user = await miniapp_authorize(request)
+@serialize_miniapp_user_game
+async def miniapp_crash_start(request: web.Request, user: dict) -> web.Response:
     uid = user["id"]
     if await db.is_banned(uid):
         raise web.HTTPForbidden(text="Account is blocked")
@@ -9476,8 +9519,8 @@ async def miniapp_crash_start(request: web.Request) -> web.Response:
     return web.json_response({**miniapp_crash_payload(game), "balance": balance_after})
 
 
-async def miniapp_crash_action(request: web.Request) -> web.Response:
-    user = await miniapp_authorize(request)
+@serialize_miniapp_user_game
+async def miniapp_crash_action(request: web.Request, user: dict) -> web.Response:
     uid = user["id"]
     if await db.is_banned(uid):
         raise web.HTTPForbidden(text="Account is blocked")
@@ -9544,8 +9587,8 @@ def miniapp_mines_payload(game: dict, reveal: bool = False) -> dict:
     }
 
 
-async def miniapp_mines_start(request: web.Request) -> web.Response:
-    user = await miniapp_authorize(request)
+@serialize_miniapp_user_game
+async def miniapp_mines_start(request: web.Request, user: dict) -> web.Response:
     user_id = user["id"]
     if await db.is_banned(user_id):
         raise web.HTTPForbidden(text="Account is blocked")
@@ -9581,8 +9624,8 @@ async def miniapp_mines_start(request: web.Request) -> web.Response:
     return web.json_response({**miniapp_mines_payload(game), "balance": balance_after})
 
 
-async def miniapp_mines_action(request: web.Request) -> web.Response:
-    user = await miniapp_authorize(request)
+@serialize_miniapp_user_game
+async def miniapp_mines_action(request: web.Request, user: dict) -> web.Response:
     user_id = user["id"]
     if await db.is_banned(user_id):
         raise web.HTTPForbidden(text="Account is blocked")
