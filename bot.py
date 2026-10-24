@@ -10055,7 +10055,8 @@ async def miniapp_play_game(request: web.Request) -> web.Response:
         payload = await request.json()
         game = str(payload["game"])
         bet = int(payload["bet"])
-        option = str(payload.get("option", ""))
+        # Backward compatibility for older Mini App clients that omit the option.
+        option = str(payload.get("option") or {"scratch": "reveal", "slots": "spin"}.get(game, ""))
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         raise web.HTTPBadRequest(text="Invalid game request")
     if game not in {"slots", "roulette", "dice", "coinflip", "scratch", "lottery"} or not CASINO_MIN_BET <= bet <= MAX_BET:
