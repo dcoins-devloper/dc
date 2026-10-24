@@ -820,7 +820,7 @@ async function animateLottery(result) {
 }
 async function playGame(game) {
   const bet = Number(document.querySelector("#game-bet")?.value);
-  const option = document.querySelector("#game-option")?.value || (game === "slots" ? "spin" : undefined);
+  const option = document.querySelector("#game-option")?.value || (game === "slots" ? "spin" : game === "scratch" ? "reveal" : undefined);
   if (!Number.isInteger(bet) || bet < 5) { alert("Минимальная ставка — 5 DC."); return; }
   const slotButton = document.querySelector('[data-action="slot-spin"]');
   if (slotButton) slotButton.disabled = true;
